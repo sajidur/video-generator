@@ -1,13 +1,24 @@
-# AI Video Factory: 3D edition
+# AI Video Factory
 
 You give it topics. For each one it:
 
 1. writes a script and a shot-by-shot storyboard with a **local AI** (Ollama),
 2. voices it with **edge-tts**, with word-level timing,
-3. builds and animates **3D scenes in Blender**: characters, props, camera moves, lighting,
-4. exports a captioned **vertical video** (9:16, 1080×1920) with cross-fades and optional music.
+3. builds the pictures in one of two styles:
+   - `--style footage`: **real video clips** from Pexels, Pixabay or your own `assets/footage/`
+     folder, one per line and cut to fit. Ready in minutes.
+   - `--style 3d`: **animated 3D scenes in Blender** with characters, props, camera moves and
+     lighting. Takes about 40 min per video.
+4. exports a captioned **vertical video** (9:16, 1080×1920) with cross-fades and optional music,
+5. optionally **uploads** it to YouTube (Shorts), a Facebook Page (Reels) and TikTok.
 
-Everything except the voice runs on this PC. edge-tts needs an internet connection.
+**Footage and uploading need a one-time setup:** see [PUBLISHING.md](PUBLISHING.md).
+
+```powershell
+python make_3d_video.py --next --upload youtube,facebook,tiktok   # make the next topic and post it
+```
+
+Everything except the voice, the footage download and the uploads runs on this PC.
 
 ```
 output/<topic>/<topic>.mp4     the video
@@ -85,6 +96,11 @@ from the last finished frame. Shots you didn't change are never rendered twice.
 | option | what it does |
 |---|---|
 | `--only volcano` | only the topics whose title contains that text |
+| `--style footage` / `--style 3d` | real stock footage or Blender 3D animation |
+| `--upload youtube,facebook,tiktok` | post each finished video (see PUBLISHING.md) |
+| `--login youtube` | connect an account once (youtube, facebook or tiktok) |
+| `--upload-existing --upload youtube` | upload videos that are already finished (never re-makes them) |
+| `--no-upload` | skip uploading this run, even with `AUTO_UPLOAD` set in `.env` |
 | `--quality draft / standard / high` | draft: 540p at 12 fps, fast test. standard: 720p render upscaled to 1080p at 24 fps (default). high: native 1080p at 30 fps. |
 | `--lang bn` / `--lang en` | force the language. Normally it is detected from the topic text: Bangla text gets a Bangla voice and Bangla captions automatically. |
 | `--voice en-US-AndrewNeural` | any edge-tts voice (`edge-tts --list-voices`) |
@@ -184,6 +200,8 @@ make_3d_video.py        command line / orchestration
 factory/topics.py       reads topics.txt and topics/*.txt
 factory/storyboard.py   Ollama prompt + JSON schema, keyword fallback, validation
 factory/casting.py      makes the actor (age, outfit, action) match every line
+factory/footage.py      real footage: own clips, Pexels, Pixabay; search, download, cut
+factory/publish.py      upload to YouTube, Facebook Page, TikTok (+ one-time logins)
 factory/voice.py        edge-tts per shot with word timings, padded narration track
 factory/captions.py     word-highlighted ASS captions
 factory/render.py       frame timeline, Blender job, resumable rendering

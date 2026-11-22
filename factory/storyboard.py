@@ -109,6 +109,7 @@ def _visual_props():
         "outfit": _enum(vocab.OUTFITS),
         "camera": _enum(vocab.CAMERAS),
         "title_3d": {"type": "string", "maxLength": 30},
+        "footage": {"type": "string", "maxLength": 60},
     }
 
 
@@ -167,6 +168,9 @@ VISUAL_RULES = """Rules for each shot's visuals:
 - hero: gender and age of the main character at the start (the boy grows up on his own when years pass).
 - hero_name: the main character's name if the story gives one, else "".
 - camera: vary it between shots; fly_over or push_in make a good first shot.
+- footage: 2 to 5 ENGLISH words to search a stock-video site for REAL footage that shows this line:
+  concrete things a camera can film (people, places, actions, objects), never abstract words.
+  Examples: "shopkeeper small grocery store", "woman paying with phone", "busy market street".
 - title_3d: 1 to 3 punchy ENGLISH words floating in 3D. Use it on the first shot and on at most
   two key moments; otherwise "".
 """
@@ -358,6 +362,20 @@ def _clean_title3d(text, lang):
     return " ".join(words[:3]) if words and len(" ".join(words[:3])) <= 22 else ""
 
 
+def footage_query(shot, lang="en"):
+    """English stock-video search words for a shot, from its planned props / action / place."""
+    hints = vocab.FOOTAGE_HINTS
+    if shot.get("props"):
+        q = hints["props"].get(shot["props"][0], "")
+    elif shot.get("character", "none") != "none":
+        q = hints["actions"].get(shot["character"], "person portrait")
+    else:
+        q = hints["environment"].get(shot.get("environment"), "")
+    if lang == "bn" and shot.get("environment") in ("village", "city", "room"):
+        q += " bangladesh"
+    return q.strip() or "city life"
+
+
 def sanitize(board, title, lang):
     shots = []
     prev_env = None
@@ -385,6 +403,9 @@ def sanitize(board, title, lang):
         }
         if re.fullmatch(r"#[0-9a-fA-F]{6}", str(raw.get("accent", ""))):
             shot["accent"] = raw["accent"]
+        query = re.sub(r"[^A-Za-z0-9 '-]", " ", str(raw.get("footage") or ""))
+        query = " ".join(query.split()[:6])
+        shot["footage"] = query if len(query) >= 3 else footage_query(shot, lang)
         if raw.get("hero") in vocab.HEROES:  # the actor's form in this shot (set by casting)
             shot["hero"] = raw["hero"]
         if raw.get("outfit") in vocab.OUTFITS:

@@ -32,11 +32,14 @@ def compose(job, tl, narration, captions, out_mp4, q, music=None, music_volume=0
     n = len(shots)
     cmd = [ffmpeg, "-y", "-v", "error", "-stats"]
     for s in shots:
-        cmd += ["-framerate", str(fps), "-i", str(Path(s["out_dir"]) / "%04d.png")]
+        if s.get("clip"):  # real footage, already cut to length
+            cmd += ["-i", str(s["clip"])]
+        else:  # rendered 3D frames
+            cmd += ["-framerate", str(fps), "-i", str(Path(s["out_dir"]) / "%04d.png")]
     cmd += ["-i", str(narration)]
     if music:
         cmd += ["-stream_loop", "-1", "-i", str(music)]
-    parts = [f"[{i}:v]setsar=1,format=yuv420p[v{i}]" for i in range(n)]
+    parts = [f"[{i}:v]fps={fps},setsar=1,format=yuv420p[v{i}]" for i in range(n)]
     last, offset = "v0", 0
     for i in range(1, n):
         offset += tl["frames"][i - 1] - x

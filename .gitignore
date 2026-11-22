@@ -10,8 +10,10 @@ output/
 # Portable Blender (download it yourself, see README)
 tools/
 
-# Local / private
+# Local / private (API keys, upload logins, your own footage)
 .env
+credentials/
+assets/footage/
 .claude/
 *.part
 *.log

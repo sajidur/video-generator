@@ -4,11 +4,24 @@ import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+try:  # API keys and settings live in .env (never committed)
+    from dotenv import load_dotenv
+    load_dotenv(ROOT / ".env")
+except ImportError:
+    pass
+
 OUTPUT = ROOT / "output"
 TOPICS_FILE = ROOT / "topics.txt"
 TOPICS_DIR = ROOT / "topics"
 MUSIC_DIR = ROOT / "assets" / "music"
+FOOTAGE_DIR = Path(os.environ.get("FOOTAGE_DIR") or ROOT / "assets" / "footage")  # your own clips
+CREDENTIALS = ROOT / "credentials"  # OAuth tokens for uploading (never committed)
 BLENDER_SCRIPTS = ROOT / "blender"
+
+
+def env(name, default=""):
+    return (os.environ.get(name) or default).strip()
 
 OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 if not OLLAMA_URL.startswith("http"):
@@ -31,8 +44,16 @@ TITLE_FONTS = ["C:/Windows/Fonts/ariblk.ttf", "C:/Windows/Fonts/arialbd.ttf",
 ACCENTS = ["#ffd166", "#4cc9f0", "#f72585", "#06d6a0", "#ff9f1c", "#b8c0ff", "#ff6b6b", "#80ffdb"]
 
 
-def quality(name, landscape=False):
-    q = dict(QUALITY[name])
+# real-footage videos need no 3D rendering, so they are always made at full size
+FOOTAGE_QUALITY = {
+    "draft": dict(width=720, height=1280, fps=30, out=(720, 1280)),
+    "standard": dict(width=1080, height=1920, fps=30, out=(1080, 1920)),
+    "high": dict(width=1080, height=1920, fps=30, out=(1080, 1920)),
+}
+
+
+def quality(name, landscape=False, style="3d"):
+    q = dict((FOOTAGE_QUALITY if style == "footage" else QUALITY)[name])
     if landscape:
         q["width"], q["height"] = q["height"], q["width"]
         q["out"] = (q["out"][1], q["out"][0])

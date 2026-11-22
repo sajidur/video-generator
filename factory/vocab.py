@@ -149,6 +149,43 @@ def prop_kind(name):
     return PROPS[name][0]
 
 
+# Stock-footage search phrases (used when the AI gives no "footage" query for a shot).
+FOOTAGE_HINTS = {
+    "environment": {
+        "village": "village countryside", "forest": "forest trees", "city": "city street",
+        "space": "space stars galaxy", "ocean": "ocean waves", "desert": "desert sand dunes",
+        "mountains": "mountains landscape", "snow": "snow winter", "room": "home interior",
+        "studio": "business office",
+    },
+    "props": {
+        "lightbulb": "idea light bulb", "heart": "family love", "star": "night stars",
+        "dollar": "money cash", "lock": "cyber security", "magnifier": "research searching",
+        "atom": "science laboratory", "dna": "dna biology", "virus": "virus microscope",
+        "gear": "factory machine", "clock": "clock time", "trophy": "winner trophy celebration",
+        "question": "confused person thinking", "medical": "doctor hospital",
+        "speech_bubble": "people talking", "shield": "security protection", "lightning": "lightning storm",
+        "tree": "green tree nature", "pine_tree": "pine forest", "house": "house home",
+        "car": "car driving road", "rocket": "rocket launch", "books": "books reading",
+        "coins": "coins money saving", "laptop": "laptop typing", "phone": "smartphone scrolling",
+        "bar_chart": "business growth chart", "campfire": "campfire", "flag": "flag waving",
+        "boat": "boat river", "wind_turbine": "wind turbines", "flowers": "flowers garden",
+        "rocks": "rocks stones", "crowd": "crowd people walking", "person": "two people talking",
+        "signpost": "road choice direction", "stairs": "climbing stairs", "factory": "factory industry",
+        "mountain": "mountain peak", "volcano": "volcano eruption", "pyramid": "pyramids egypt",
+        "buildings": "skyscrapers city", "sun": "sunrise sun", "moon": "full moon night",
+        "planet": "planet space", "earth": "earth from space", "clouds": "clouds sky timelapse",
+        "birds": "birds flying", "airplane": "airplane flying",
+    },
+    "actions": {
+        "walk": "person walking", "run": "person running", "wave": "person waving hello",
+        "celebrate": "happy person celebrating", "think": "person thinking", "read": "person reading book",
+        "sad": "sad person", "talk": "people talking", "point": "presenter pointing",
+        "work": "person working hard", "carry": "delivery man carrying box", "sit": "person sitting",
+        "idle": "person portrait",
+    },
+}
+
+
 # Bangla keyword stems (a word matches when it starts with a stem, so গ্রাম matches গ্রামে / গ্রামের).
 KEYWORDS_BN = {
     "props": {

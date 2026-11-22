@@ -15,11 +15,12 @@ scenes in Blender and exports a captioned vertical video per topic.
 Run with --help for all options. Output: output/<topic>/<topic>.mp4
 """
 import argparse
+import json
 import re
 import sys
 import time
 
-from factory import captions, compose, config, render, storyboard, voice
+from factory import captions, compose, config, footage, publish, render, storyboard, voice
 from factory.topics import Topic, detect_lang, load_topics
 
 
@@ -47,6 +48,17 @@ def parse_args():
     p.add_argument("--no-ai", action="store_true", help="never use the AI model (needs your own narration)")
     p.add_argument("--no-titles", action="store_true", help="no floating 3D title words")
     p.add_argument("--music", help="background music file, or 'none' (default: a track from assets/music/)")
+    p.add_argument("--style", choices=["footage", "3d"],
+                   help="footage = real stock video clips (Pexels/Pixabay/your own), 3d = Blender animation "
+                        "(default: VIDEO_STYLE in .env, else footage when a footage source is set up)")
+    p.add_argument("--upload", metavar="PLATFORMS",
+                   help="after making each video upload it: youtube,facebook,tiktok "
+                        "(default: AUTO_UPLOAD in .env)")
+    p.add_argument("--no-upload", action="store_true", help="don't upload this time, even if AUTO_UPLOAD is set")
+    p.add_argument("--upload-existing", action="store_true",
+                   help="only upload videos that are already finished (never makes or re-makes a video)")
+    p.add_argument("--login", choices=list(publish.PLATFORMS),
+                   help="connect an account for uploading (one-time), then stop")
     return p.parse_args()
 
 
@@ -102,8 +114,11 @@ def make(topic, args, q):
     clips = voice.synthesize(board, out / "audio", v, args.rate, log=log)
     tl = render.timeline(clips, q["fps"])
     log(f"  length: {tl['total_frames'] / q['fps']:.1f}s, {len(clips)} shots")
-    job = render.make_job(board, topic.slug, tl, q, out, titles=not args.no_titles and lang == "en")
 
+    if q["style"] == "footage":
+        return make_footage(topic, args, q, out, final, board, clips, tl, lang)
+
+    job = render.make_job(board, topic.slug, tl, q, out, titles=not args.no_titles and lang == "en")
     if args.preview:
         render.run_blender(job, out, still=True, log=log)
         stills = [out / "frames" / f"preview_{i + 1:02d}.png" for i in range(len(job["shots"]))]
@@ -121,6 +136,33 @@ def make(topic, args, q):
 
     # 4. 3D render (resumable) and 5. final video
     render.run_blender(job, out, log=log)
+    music = compose.pick_music(topic.slug, args.music)
+    if music:
+        log(f"  music: {music.name}")
+    log("  encoding video ...")
+    compose.compose(job, tl, narration, caps, final, q, music)
+    return final
+
+
+def make_footage(topic, args, q, out, final, board, clips, tl, lang):
+    """Real-footage version: one stock / own clip per shot, cut to the narration."""
+    log("  finding footage ...")
+    job, credits = footage.build_shots(board, tl, q, out, log=log)
+    (out / "credits.json").write_text(json.dumps(credits, indent=2, ensure_ascii=False), encoding="utf-8")
+    if args.preview:
+        stills = []
+        for i, s in enumerate(job["shots"]):
+            png = out / "clips" / f"preview_{i + 1:02d}.png"
+            footage.still(s["clip"], png)
+            stills.append(png)
+        compose.contact_sheet(stills, out / "preview.jpg")
+        log(f"  preview: {out / 'preview.jpg'}")
+        return None
+    narration = out / "narration.wav"
+    voice.build_track(clips, narration)
+    caps = out / "captions.ass"
+    captions.write_ass(clips, [s["narration"] for s in board["shots"]], caps, *q["out"],
+                       config.CAPTION_FONTS.get(lang, "Arial"))
     music = compose.pick_music(topic.slug, args.music)
     if music:
         log(f"  music: {music.name}")
@@ -167,11 +209,46 @@ def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     args = parse_args()
-    q = dict(config.quality(args.quality, args.landscape), name=args.quality)
+    if args.login:
+        try:
+            publish.login(args.login, log)
+        except Exception as exc:
+            log(f"Login failed: {exc}")
+            return 1
+        return 0
     todo = [Topic(t, source="command line") for t in args.topics] or load_topics()
     if args.list:
         show_list(todo)
         return 0
+    # --upload wins; otherwise AUTO_UPLOAD in .env uploads every finished video; --no-upload turns it off
+    wanted = "" if args.no_upload else (args.upload or config.env("AUTO_UPLOAD"))
+    platforms = [p.strip().lower() for p in wanted.split(",") if p.strip()]
+    unknown = [p for p in platforms if p not in publish.PLATFORMS]
+    if unknown:
+        log(f"Unknown platform(s): {unknown}. Use: {', '.join(publish.PLATFORMS)}")
+        return 1
+    if args.upload_existing:
+        if not platforms:
+            log("Say where: --upload youtube,facebook (or set AUTO_UPLOAD in .env)")
+            return 1
+        if args.only:
+            todo = select(todo, args.only)
+        ready = [t for t in todo if status(t) == "done"]
+        log(f"Uploading {len(ready)} finished video(s) to {', '.join(platforms)}")
+        for i, t in enumerate(ready, 1):
+            log(f"\n[{i}/{len(ready)}] {t.slug}")
+            publish.upload(config.OUTPUT / t.slug, config.OUTPUT / t.slug / f"{t.slug}.mp4", platforms, log)
+        return 0
+    style = args.style or config.env("VIDEO_STYLE") or ("footage" if footage.available() else "3d")
+    if style == "footage" and not footage.available():
+        msg = ("No footage source set up: add PEXELS_API_KEY or PIXABAY_API_KEY to .env (free), "
+               "or put clips in assets/footage/. See PUBLISHING.md.")
+        if args.style:
+            log(msg + "  (Or use --style 3d)")
+            return 1
+        log(msg + "\n-> making 3D videos for now.")
+        style = "3d"
+    q = dict(config.quality(args.quality, args.landscape, style), name=args.quality, style=style)
     if args.only:
         todo = select(todo, args.only)
     if args.next:
@@ -179,8 +256,9 @@ def main():
     if not todo:
         log("No topics. Add one per line to topics.txt (or pass one: python make_3d_video.py \"My topic\").")
         return 1
-    log(f"AI VIDEO FACTORY 3D: {len(todo)} topic(s), quality={args.quality} "
-        f"({q['width']}x{q['height']} @ {q['fps']}fps -> {q['out'][0]}x{q['out'][1]})")
+    log(f"AI VIDEO FACTORY: {len(todo)} topic(s), style={style}, quality={args.quality} "
+        f"({q['width']}x{q['height']} @ {q['fps']}fps -> {q['out'][0]}x{q['out'][1]})"
+        f"{', upload to ' + ', '.join(platforms) if platforms else ''}")
     done, failed = [], []
     for i, topic in enumerate(todo, 1):
         log(f"\n[{i}/{len(todo)}] {topic.title}  ({topic.source})")
@@ -190,6 +268,8 @@ def main():
             if result:
                 done.append(result)
                 log(f"  DONE in {(time.time() - start) / 60:.1f} min -> {result}")
+                if platforms:
+                    publish.upload(result.parent, result, platforms, log)
         except KeyboardInterrupt:
             log("\nStopped. Run the same command again to continue where it left off.")
             return 130
