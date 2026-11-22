@@ -8,8 +8,11 @@ import time
 import edge_tts
 
 LEAD = 0.2   # silence before each shot's line
-TAIL = 0.45  # silence after it
+TAIL = 0.35  # silence after it
 END_TAIL = 1.2
+# The voice service adds ~1 s of silence after every clip. Speech really ends ~0.12 s after the
+# last word's timestamp, so each clip is cut this long after it (keeps scenes from dragging).
+SPEECH_PAD = 0.25
 
 
 async def _tts(text, voice, rate, mp3):
@@ -75,8 +78,11 @@ def synthesize(board, folder, voice, rate="+0%", log=print):
                 words = _even_words(text, speech)
             meta.write_text(json.dumps({"speech": speech, "words": words}, ensure_ascii=False), encoding="utf-8")
         data = json.loads(meta.read_text(encoding="utf-8"))
-        seg = LEAD + data["speech"] + (END_TAIL if i == n - 1 else TAIL)
-        clips.append({"audio": mp3, "speech": data["speech"], "segment": seg, "words": data["words"]})
+        speech = data["speech"]
+        if data["words"]:
+            speech = min(speech, data["words"][-1]["end"] + SPEECH_PAD)
+        seg = LEAD + speech + (END_TAIL if i == n - 1 else TAIL)
+        clips.append({"audio": mp3, "speech": speech, "segment": seg, "words": data["words"]})
     for old in folder.glob("shot_*.*"):  # drop clips of narration lines that were edited away
         if not any(old.stem == c["audio"].stem for c in clips):
             old.unlink(missing_ok=True)
@@ -90,7 +96,7 @@ def build_track(clips, out_wav, ffmpeg="ffmpeg"):
         cmd += ["-i", str(c["audio"])]
     parts = []
     for i, c in enumerate(clips):
-        parts.append(f"[{i}:a]aresample=48000,aformat=channel_layouts=mono,"
+        parts.append(f"[{i}:a]aresample=48000,aformat=channel_layouts=mono,atrim=0:{c['speech']:.4f},"
                      f"adelay={int(LEAD * 1000)}:all=1,apad,atrim=0:{c['segment']:.4f}[a{i}]")
     concat = "".join(f"[a{i}]" for i in range(len(clips)))
     graph = ";".join(parts) + f";{concat}concat=n={len(clips)}:v=0:a=1[out]"

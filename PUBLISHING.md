@@ -3,7 +3,7 @@
 Everything here is set up once. Afterwards a single command makes the next video and posts it:
 
 ```powershell
-python make_3d_video.py --next --upload youtube,facebook,tiktok
+python make_video.py --next --upload youtube,facebook,tiktok
 ```
 
 First copy `.env.example` to `.env`. All keys go into `.env`, and the upload logins are saved in
@@ -46,7 +46,7 @@ Switch between styles with `--style footage` / `--style 3d`, or set `VIDEO_STYLE
    and add yourself under **Test users**.
 4. *APIs & Services → Credentials → Create credentials → OAuth client ID → Desktop app*.
    Download the JSON and save it as `credentials/youtube_client_secret.json`.
-5. Run `python make_3d_video.py --login youtube`. A browser opens: pick the channel and allow access.
+5. Run `python make_video.py --login youtube`. A browser opens: pick the channel and allow access.
 
 **Important limits (set by Google, not by this program):**
 - **Private until audited:** videos uploaded through a new, unaudited API project are locked to
@@ -62,7 +62,7 @@ Switch between styles with `--style footage` / `--style 3d`, or set `VIDEO_STYLE
 1. Go to <https://developers.facebook.com/apps/>, then *Create app → Other → Business*.
 2. Copy *App ID* and *App secret* (*App settings → Basic*) into `.env` as `FACEBOOK_APP_ID` and
    `FACEBOOK_APP_SECRET`.
-3. Run `python make_3d_video.py --login facebook` and follow the three steps it prints. You'll
+3. Run `python make_video.py --login facebook` and follow the three steps it prints. You'll
    generate a token in the Graph API Explorer with the permissions `pages_show_list`,
    `pages_read_engagement` and `pages_manage_posts`, then paste it.
 4. If you manage several Pages, it asks which one to use. The saved Page token does not expire.
@@ -79,7 +79,7 @@ The app can stay in *Development* mode: you are its admin, so it may post to you
    `video.publish` and `video.upload`.
 3. Put the *Client key* and *Client secret* in `.env` as `TIKTOK_CLIENT_KEY` and
    `TIKTOK_CLIENT_SECRET`.
-4. Run `python make_3d_video.py --login tiktok`. Log in in the browser window and allow access.
+4. Run `python make_video.py --login tiktok`. Log in in the browser window and allow access.
 
 **Important limits (set by TikTok):**
 - **Private until audited:** until your app passes TikTok's review, posts can only be *private*
@@ -93,10 +93,15 @@ The app can stay in *Development* mode: you are its admin, so it may post to you
 
 ## Day-to-day
 
+Set `AUTO_UPLOAD=youtube,facebook` (or let `setup.bat` do it), and every new video is posted as
+soon as it is finished:
+
 ```powershell
-python make_3d_video.py --next --upload youtube,facebook,tiktok   # next topic: make + post
-python make_3d_video.py --only 12 --upload facebook                # post an already-made video
-python make_3d_video.py --only 1-5 --preview                       # check footage choices first
+python make_video.py --next                                  # make the next topic, post it automatically
+python make_video.py --next --no-upload                      # make it, but don't post this time
+python make_video.py --upload-existing                       # post finished videos that aren't posted yet
+python make_video.py --upload-existing --upload facebook     # ... only to Facebook
+python make_video.py --history                               # what was posted where (+ output/history.csv)
 ```
 
 - `output/<topic>/post.json` holds the title, description and hashtags. It's written once; edit it
@@ -104,3 +109,4 @@ python make_3d_video.py --only 1-5 --preview                       # check foota
 - `output/<topic>/uploads.json` remembers where each video went, so nothing is posted twice.
   Delete a platform's entry to post it again.
 - If one platform fails, the others still upload. Fix the problem and run the same command again.
+- If a platform's daily limit is hit (e.g. YouTube), the remaining videos simply go up on the next run.

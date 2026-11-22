@@ -3,9 +3,9 @@
 # "name | title": the name (English) becomes the output folder: output/<name>/<name>.mp4
 #
 # Make them one at a time:
-#   python make_3d_video.py --list        numbered list + which are done
-#   python make_3d_video.py --next        make the next unfinished topic
-#   python make_3d_video.py --only 7      make topic number 7 (or 5-10)
+#   python make_video.py --list        numbered list + which are done
+#   python make_video.py --next        make the next unfinished topic
+#   python make_video.py --only 7      make topic number 7 (or 5-10)
 #
 # Want to write the narration yourself? Create topics/<name>.txt instead:
 #   first line = title, the following lines = your narration.

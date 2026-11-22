@@ -191,8 +191,9 @@ def _script_prompt(title, seconds, lang):
 Write the voice-over script for a {seconds}-second vertical video (about {words} words in total).
 Rules:
 - Exactly 7 to 9 lines. Each line is one scene: 1 or 2 short spoken sentences (12 to 25 words).
-- Line 1 is a hook: a surprising fact or a question. The last line is a memorable takeaway.
-- If the topic names a book or author, mention it once, in the first or the last line.
+- Line 1 is a hook: a question or a relatable everyday situation. The last line is a memorable takeaway.
+- NEVER invent statistics, numbers, studies or quotes. Only state things that are true.
+- If the topic names a book or author, mention it once, and give the book's real definition of the idea.
 - Explain the idea correctly and simply, with one everyday example.
 {SCRIPT_RULES.get(lang, SCRIPT_RULES["en"])}
 - Output ONLY the lines, one per line. No numbering, no title, no notes, no quotes, no stage directions.

@@ -3,14 +3,14 @@
 Give it topics; it writes the script (local AI), voices it, builds animated 3D
 scenes in Blender and exports a captioned vertical video per topic.
 
-    python make_3d_video.py                       # every topic in topics.txt and topics/*.txt
-    python make_3d_video.py "Why is the sky blue"  # one topic right now
-    python make_3d_video.py --plan-only            # write storyboards only (edit, then run again)
-    python make_3d_video.py --preview              # one still per shot -> preview.jpg (fast check)
-    python make_3d_video.py --quality draft        # quick low-res test render
-    python make_3d_video.py --list                 # numbered topics + which are done
-    python make_3d_video.py --next                 # make just the next unfinished topic
-    python make_3d_video.py --only 7               # make topic number 7 (or 5-10, or 1,4,9)
+    python make_video.py                       # every topic in topics.txt and topics/*.txt
+    python make_video.py "Why is the sky blue"  # one topic right now
+    python make_video.py --plan-only            # write storyboards only (edit, then run again)
+    python make_video.py --preview              # one still per shot -> preview.jpg (fast check)
+    python make_video.py --quality draft        # quick low-res test render
+    python make_video.py --list                 # numbered topics + which are done
+    python make_video.py --next                 # make just the next unfinished topic
+    python make_video.py --only 7               # make topic number 7 (or 5-10, or 1,4,9)
 
 Run with --help for all options. Output: output/<topic>/<topic>.mp4
 """
@@ -20,12 +20,13 @@ import re
 import sys
 import time
 
-from factory import captions, compose, config, footage, history, publish, render, storyboard, voice
+from factory import (captions, compose, config, footage, history, publish, render, setup, storyboard,
+                     voice)
 from factory.topics import Topic, detect_lang, load_topics
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Turn topics into narrated 3D animated videos.")
+    p = argparse.ArgumentParser(description="Turn topics into narrated videos (real footage or 3D) and post them.")
     p.add_argument("topics", nargs="*", help="topic(s) to make now (default: topics.txt and topics/*.txt)")
     p.add_argument("--only", metavar="WHICH",
                    help="topic number(s) from --list (7, 5-10, 1,4,9) or text in the title / name")
@@ -59,6 +60,8 @@ def parse_args():
     p.add_argument("--no-upload", action="store_true", help="don't upload this time, even if AUTO_UPLOAD is set")
     p.add_argument("--upload-existing", action="store_true",
                    help="only upload videos that are already finished (never makes or re-makes a video)")
+    p.add_argument("--setup", action="store_true", help="guided setup: tools, keys, auto-upload, account logins")
+    p.add_argument("--doctor", action="store_true", help="check that everything is installed and connected")
     p.add_argument("--login", choices=list(publish.PLATFORMS),
                    help="connect an account for uploading (one-time), then stop")
     return p.parse_args()
@@ -211,7 +214,7 @@ def show_list(topics):
     for i, t in enumerate(topics, 1):
         log(f"{i:>4}. {marks[status(t)]} {t.slug:<14} {t.title}")
     done = sum(1 for t in topics if status(t) == "done")
-    log(f"\n{done}/{len(topics)} done.  Next: python make_3d_video.py --next   "
+    log(f"\n{done}/{len(topics)} done.  Next: python make_video.py --next   "
         f"(or --only <number>)")
 
 
@@ -219,6 +222,11 @@ def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     args = parse_args()
+    if args.setup:
+        setup.wizard(log)
+        return 0
+    if args.doctor:
+        return 0 if setup.doctor(log) else 1
     if args.login:
         try:
             publish.login(args.login, log)
@@ -267,7 +275,7 @@ def main():
     if args.next:
         todo = [t for t in todo if status(t) != "done"][:args.next]
     if not todo:
-        log("No topics. Add one per line to topics.txt (or pass one: python make_3d_video.py \"My topic\").")
+        log("No topics. Add one per line to topics.txt (or pass one: python make_video.py \"My topic\").")
         return 1
     log(f"AI VIDEO FACTORY: {len(todo)} topic(s), style={style}, quality={args.quality} "
         f"({q['width']}x{q['height']} @ {q['fps']}fps -> {q['out'][0]}x{q['out'][1]})"

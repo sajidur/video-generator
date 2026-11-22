@@ -64,7 +64,7 @@ def _write_env(updates):
             lines[i] = f"{m.group(1)}={updates[m.group(1)]}"
             seen.add(m.group(1))
     lines += [f"{k}={v}" for k, v in updates.items() if k not in seen]
-    ENV.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ENV.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     for k, v in updates.items():  # use the new values in this run too
         os.environ[k] = v
 
@@ -186,6 +186,25 @@ def doctor(log=print):
     for p in publish.PLATFORMS:
         connected = (config.CREDENTIALS / CRED_FILES[p]).exists()
         label = f"{p} account" + (" (auto-upload is on)" if p in auto else "")
+        if p == "youtube" and connected:
+            try:
+                channel = publish.youtube_channel()
+                label += f": channel '{channel}'" if channel else ""
+                if not channel:
+                    ok &= _ok(log, False, label, "this Google account has no YouTube channel: create one at "
+                              "https://www.youtube.com/create_channel (or log in with the account that owns your "
+                              "channel), then: python make_video.py --login youtube")
+                    continue
+            except Exception as exc:
+                text = str(exc)
+                if "insufficientPermissions" in text or "insufficient authentication scopes" in text:
+                    why = "connected with an older login that cannot show the channel - reconnect once"
+                elif "youtubeSignupRequired" in text:
+                    why = "this Google account has no YouTube channel - create one, then reconnect"
+                else:
+                    why = f"login problem ({text[:100]})"
+                ok &= _ok(log, False, label, f"{why}:  python make_video.py --login youtube")
+                continue
         if p in auto:
             ok &= _ok(log, connected, label, f"python make_video.py --login {p}   (see PUBLISHING.md)")
         else:

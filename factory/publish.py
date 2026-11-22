@@ -1,6 +1,6 @@
 """Upload finished videos to YouTube (Shorts), a Facebook Page (Reels) and TikTok.
 
-One-time setup per platform: see PUBLISHING.md, then  python make_3d_video.py --login <platform>
+One-time setup per platform: see PUBLISHING.md, then  python make_video.py --login <platform>
 Per video:
   output/<topic>/post.json     title, description, tags (written once, edit it freely)
   output/<topic>/uploads.json  what was uploaded where (so nothing is posted twice)
@@ -88,7 +88,8 @@ def make_post(board, credits, out):
 
 # ----------------------------------------------------------------- youtube ---
 
-YT_SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+YT_SCOPES = ["https://www.googleapis.com/auth/youtube.upload",
+             "https://www.googleapis.com/auth/youtube.readonly"]  # readonly: lets --doctor see the channel name
 
 
 def _youtube_credentials(login=False):
@@ -105,7 +106,7 @@ def _youtube_credentials(login=False):
             creds = None
     if login or not creds or not creds.valid:
         if not login:
-            raise RuntimeError("YouTube is not connected. Run:  python make_3d_video.py --login youtube")
+            raise RuntimeError("YouTube is not connected. Run:  python make_video.py --login youtube")
         if not secret.exists():
             raise RuntimeError(f"Save your Google OAuth client file as {secret} first (see PUBLISHING.md)")
         creds = InstalledAppFlow.from_client_secrets_file(str(secret), YT_SCOPES).run_local_server(
@@ -113,6 +114,14 @@ def _youtube_credentials(login=False):
     token.parent.mkdir(parents=True, exist_ok=True)
     token.write_text(creds.to_json(), encoding="utf-8")
     return creds
+
+
+def youtube_channel():
+    """Name of the connected YouTube channel, or '' if the Google account has no channel."""
+    from googleapiclient.discovery import build
+    yt = build("youtube", "v3", credentials=_youtube_credentials(), cache_discovery=False)
+    items = yt.channels().list(part="snippet", mine=True).execute().get("items", [])
+    return items[0]["snippet"]["title"] if items else ""
 
 
 def upload_youtube(video, post, lang, log):
@@ -160,7 +169,7 @@ def _facebook_page():
     page_id = saved.get("page_id") or config.env("FACEBOOK_PAGE_ID")
     token = saved.get("page_token") or config.env("FACEBOOK_PAGE_TOKEN")
     if not (page_id and token):
-        raise RuntimeError("Facebook is not connected. Run:  python make_3d_video.py --login facebook")
+        raise RuntimeError("Facebook is not connected. Run:  python make_video.py --login facebook")
     return page_id, token
 
 
@@ -232,11 +241,11 @@ def _tiktok_token_request(data):
 def _tiktok_access_token():
     tok = _load_json(config.CREDENTIALS / "tiktok.json")
     if not tok:
-        raise RuntimeError("TikTok is not connected. Run:  python make_3d_video.py --login tiktok")
+        raise RuntimeError("TikTok is not connected. Run:  python make_video.py --login tiktok")
     if time.time() < tok.get("expires_at", 0):
         return tok["access_token"]
     if time.time() > tok.get("refresh_expires_at", 0):
-        raise RuntimeError("TikTok login expired. Run:  python make_3d_video.py --login tiktok")
+        raise RuntimeError("TikTok login expired. Run:  python make_video.py --login tiktok")
     return _tiktok_token_request({
         "client_key": config.env("TIKTOK_CLIENT_KEY"), "client_secret": config.env("TIKTOK_CLIENT_SECRET"),
         "grant_type": "refresh_token", "refresh_token": tok["refresh_token"]})["access_token"]
@@ -381,7 +390,7 @@ def upload(out, video, platforms, log=print):
                 _blocked[p] = "no YouTube channel on the connected Google account"
                 text = ("the Google account you connected has no YouTube channel. Create one at "
                         "https://www.youtube.com/create_channel (or pick the account / brand account that "
-                        "owns your channel), then run:  python make_3d_video.py --login youtube")
+                        "owns your channel), then run:  python make_video.py --login youtube")
             log(f"  {p} FAILED: {text}")
             continue
         info["time"] = time.strftime("%Y-%m-%d %H:%M")

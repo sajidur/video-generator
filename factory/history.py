@@ -16,7 +16,6 @@ PLATFORMS = ("youtube", "facebook", "tiktok")
 
 
 def add(event, **fields):
-    _backfill()
     rec = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "event": event, **fields}
     FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(FILE, "a", encoding="utf-8") as f:
@@ -24,7 +23,7 @@ def add(event, **fields):
 
 
 def load():
-    _backfill()
+    _sync()
     if not FILE.exists():
         return []
     out = []
@@ -36,42 +35,55 @@ def load():
     return out
 
 
-def _backfill():
-    """First run: import videos and uploads that were made before history existed."""
-    if FILE.exists() or not config.OUTPUT.is_dir():
+def _sync():
+    """Add any finished video or upload found on disk that history doesn't know yet
+    (videos made before history existed, or by an older run of the program)."""
+    if not config.OUTPUT.is_dir():
         return
+    known = set()
+    if FILE.exists():
+        for line in FILE.read_text(encoding="utf-8").splitlines():
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            known.add((r.get("event"), r.get("slug"), r.get("platform")))
     recs = []
     for d in sorted(p for p in config.OUTPUT.iterdir() if p.is_dir() and not p.name.startswith("_")):
         video = d / f"{d.name}.mp4"
         if not video.exists():
             continue
-        title = ""
-        sb = d / "storyboard.json"
-        if sb.exists():
+        if ("made", d.name, None) not in known:
+            title = ""
+            sb = d / "storyboard.json"
+            if sb.exists():
+                try:
+                    title = json.loads(sb.read_text(encoding="utf-8")).get("title", "")
+                except ValueError:
+                    pass
             try:
-                title = json.loads(sb.read_text(encoding="utf-8")).get("title", "")
-            except ValueError:
-                pass
-        try:
-            seconds = round(float(subprocess.check_output(
-                [config.find_tool("ffprobe"), "-v", "error", "-show_entries", "format=duration",
-                 "-of", "default=noprint_wrappers=1:nokey=1", str(video)], text=True).strip()), 1)
-        except (subprocess.CalledProcessError, ValueError, SystemExit):
-            seconds = ""
-        recs.append({"time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(video.stat().st_mtime)),
-                     "event": "made", "slug": d.name, "title": title, "file": str(video), "seconds": seconds,
-                     "size_mb": round(video.stat().st_size / 1e6, 1), "note": "imported"})
+                seconds = round(float(subprocess.check_output(
+                    [config.find_tool("ffprobe"), "-v", "error", "-show_entries", "format=duration",
+                     "-of", "default=noprint_wrappers=1:nokey=1", str(video)], text=True).strip()), 1)
+            except (subprocess.CalledProcessError, ValueError, SystemExit):
+                seconds = ""
+            recs.append({"time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(video.stat().st_mtime)),
+                         "event": "made", "slug": d.name, "title": title, "file": str(video),
+                         "seconds": seconds, "size_mb": round(video.stat().st_size / 1e6, 1), "note": "found on disk"})
         up = d / "uploads.json"
         if up.exists():
             try:
                 for platform, info in json.loads(up.read_text(encoding="utf-8")).items():
-                    recs.append({"time": info.get("time", ""), "event": "uploaded", "slug": d.name,
-                                 "platform": platform, "url": info.get("url", ""), "note": "imported"})
+                    if ("uploaded", d.name, platform) not in known:
+                        recs.append({"time": info.get("time", ""), "event": "uploaded", "slug": d.name,
+                                     "platform": platform, "url": info.get("url", ""), "note": "found on disk"})
             except ValueError:
                 pass
-    recs.sort(key=lambda r: r["time"])
-    FILE.parent.mkdir(parents=True, exist_ok=True)
-    FILE.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs), encoding="utf-8")
+    if recs:
+        recs.sort(key=lambda r: r["time"])
+        FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(FILE, "a", encoding="utf-8") as f:
+            f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in recs)
 
 
 def videos():
