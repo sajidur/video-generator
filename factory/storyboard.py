@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 import unicodedata
+from collections import Counter
 from pathlib import Path
 
 import requests
@@ -152,15 +153,22 @@ SYSTEM = ("You write and direct short vertical 3D animated videos (YouTube Short
           "library of scene elements. Every visual choice must show what that shot's narration says.")
 
 VISUAL_RULES = """Rules for each shot's visuals:
-- environment: where the scene happens. Use at most 3 different environments in the whole video and
-  keep consecutive shots in the same place while the story stays there.
+- environment: the place where the line's example really happens: shop for buying and selling in a
+  store, market for a bazaar or busy street, office for companies, managers and meetings, cafe for a tea
+  stall or restaurant, warehouse for stock, delivery and wholesale, classroom for teaching or a book,
+  room for life at home, studio for abstract ideas. Use village, forest, mountains, desert, snow, ocean
+  or space ONLY when the line talks about that kind of place. Use at most 3 different places and keep
+  consecutive shots in the same place while the story stays there.
 - time: day, sunrise, sunset or night - match the mood.
 - props: 2 or 3 items that SHOW what the narration says, most important first. Use "person" when the
-  hero talks to one other person (customer, friend, parent) and "crowd" for many people.
-- character: the main character's action must show the line's main verb: walk/run when going
-  somewhere, carry when delivering or bringing something, talk when speaking or explaining, point when
-  showing something, think when deciding or dreaming, work when working hard, read when learning, sad
-  when struggling or failing, celebrate when succeeding, sit when resting or waiting.
+  hero deals with one other person (customer, seller, friend, partner) and "crowd" for many people.
+- character: the main character's action must show the line's main verb: give when selling or serving,
+  buy when paying or purchasing, shake_hands for a deal or partnership, listen when listening to
+  customers, talk when speaking or explaining, phone for calls, apps and social media, write for plans
+  or surveys, announce for advertising, thumbs_up for a happy customer, drink at a tea stall, push_cart
+  in a supermarket, search when looking for something, shrug when confused, point when showing
+  something, think when deciding, read when learning, work when working hard, carry when delivering,
+  walk/run when going somewhere, sad when failing, celebrate or clap when succeeding.
   If the line is about the main character (their name, he, she), the character MUST appear - never
   "none". Use "none" only for lines about objects, places or facts.
 - outfit: what the main character wears in this shot. It must fit their job and situation at that
@@ -273,8 +281,8 @@ def _bn_hit(word, stems):
     return any(word.startswith(s) for s in stems)
 
 
-def _keyword_best(text, group, limit=1):
-    """Rank vocabulary names by keyword hits (English words and Bangla word stems)."""
+def _keyword_scores(text, group):
+    """{vocabulary name: keyword hits} for English words and Bangla word stems, in vocabulary order."""
     words = _WORD.findall(text.lower())
     bn = _bn_words(text)
     scores = {}
@@ -287,6 +295,12 @@ def _keyword_best(text, group, limit=1):
         hits += sum(1 for w in bn if _bn_hit(w, stems))
         if hits:
             scores[name] = hits
+    return scores
+
+
+def _keyword_best(text, group, limit=1):
+    """Rank vocabulary names by keyword hits (ties: vocabulary order)."""
+    scores = _keyword_scores(text, group)
     return [n for n, _ in sorted(scores.items(), key=lambda kv: -kv[1])][:limit]
 
 
@@ -372,7 +386,7 @@ def footage_query(shot, lang="en"):
         q = hints["actions"].get(shot["character"], "person portrait")
     else:
         q = hints["environment"].get(shot.get("environment"), "")
-    if lang == "bn" and shot.get("environment") in ("village", "city", "room"):
+    if lang == "bn" and shot.get("environment") in ("village", "city", "room", "market", "cafe", "shop"):
         q += " bangladesh"
     return q.strip() or "city life"
 
@@ -432,20 +446,63 @@ def sanitize(board, title, lang):
 
 
 LANDMARK_HOME = {"volcano": "mountains", "mountain": "mountains", "pyramid": "desert", "boat": "ocean"}
-CRAMPED = {"city", "room", "studio"}  # landmarks get hidden by walls / skyscrapers here
+# landmarks get hidden by walls / skyscrapers / stalls here
+CRAMPED = {"city", "room", "studio", "shop", "office", "classroom", "warehouse", "cafe"}
+
+
+def contextualize(board):
+    """Put every shot where its line happens, and show what the line talks about.
+
+    Small models like to drop a tea-stall example into a village or end a business video on a
+    mountain top. A shot keeps a wild place (village, forest, mountains...) only when its line, or
+    for the village the whole story, is about it; otherwise it moves to the story's own place."""
+    shots = board["shots"]
+    story = " ".join(s["narration"] for s in shots)
+    story_hits = _keyword_scores(story, "environments")
+    story_hits.pop("studio", None)
+    tame = Counter(s["environment"] for s in shots if s["environment"] not in vocab.WILD_PLACES)
+    home = (max(story_hits, key=story_hits.get) if story_hits
+            else tame.most_common(1)[0][0] if tame else "studio")
+    for s in shots:
+        hits = _keyword_scores(s["narration"], "environments")
+        hits.pop("studio", None)
+        if hits.get(s["environment"]):
+            continue  # the line names the planned place
+        if hits:
+            s["environment"] = max(hits, key=hits.get)  # the line names another place
+        elif s["environment"] in vocab.WILD_PLACES and not story_hits.get(s["environment"]):
+            s["environment"] = home
+    for s in shots:
+        # props: the AI's picks that the line backs up, then at most one thing the line names that
+        # the AI missed, then the AI's other ideas. A shopfront inside a shop says nothing new.
+        same = REDUNDANT.get(s["environment"], set())
+        ranked = [p for p in _keyword_best(s["narration"], "props", 4) if p not in same]
+        ai = [p for p in s["props"] if p not in same]
+        target = 3 if s["character"] == "none" else 2
+        props = [p for p in ai if p in ranked]
+        extra = [p for p in ranked if p not in props]
+        props += extra[:1] if ai else extra
+        props += [p for p in ai if p not in props]
+        s["props"] = props[:target]
+    return board
+
+
+REDUNDANT = {"shop": {"shopfront"}, "cafe": {"shopfront"}, "market": {"shopfront"}, "room": {"house"}}
 
 
 def enrich(board):
     """Repair thin or odd AI plans (only right after planning, never on your edits)."""
+    contextualize(board)
     for shot in board["shots"]:
         home = next((LANDMARK_HOME[p] for p in shot["props"] if p in LANDMARK_HOME), None)
         if home and shot["environment"] in CRAMPED:
             shot["environment"] = home
         want = 2 if shot["props"] else (1 if shot["character"] != "none" else 2)
-        for p in _keyword_best(shot["narration"], "props", 3):
+        same = REDUNDANT.get(shot["environment"], set())
+        for p in _keyword_best(shot["narration"], "props", 4):
             if len(shot["props"]) >= want:
                 break
-            if p not in shot["props"]:
+            if p not in shot["props"] and p not in same:
                 shot["props"].append(p)
     return board
 

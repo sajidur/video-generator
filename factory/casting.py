@@ -11,9 +11,17 @@ from . import vocab
 from .text import count, has, norm
 
 W = vocab.CAST_WORDS
-WORK_OUTFITS = {"suit", "shopkeeper", "doctor", "worker", "farmer"}  # grown-up jobs
-EVIDENCE = {"work": {"laptop", "phone", "gear", "factory"}, "read": {"books"}, "carry": set(),
-            "sit": set(), "walk": {"car"}, "run": set()}
+WORK_OUTFITS = {"suit", "shopkeeper", "doctor", "worker", "farmer", "office", "chef", "delivery", "police",
+                "teacher"}  # grown-up jobs
+# Specific actions look random unless the line, a prop or the place supports them.
+EVIDENCE = {"work": {"laptop", "phone", "gear", "factory"}, "read": {"books"}, "carry": {"boxes"},
+            "sit": set(), "walk": {"car"}, "run": set(), "phone": {"phone", "likes", "laptop"},
+            "buy": {"shopping_bag", "shopping_cart", "price_tag", "produce"},
+            "give": {"gift", "boxes", "shopping_bag"}, "write": {"whiteboard"}, "announce": {"megaphone"},
+            "drink": set(), "push_cart": {"shopping_cart"}, "search": {"magnifier"}, "shrug": {"question"},
+            "shake_hands": set(), "clap": {"trophy"}, "thumbs_up": {"rating", "likes"}}
+EVIDENCE_PLACES = {"drink": {"cafe"}, "push_cart": {"shop"}, "buy": {"shop", "market", "cafe"},
+                   "give": {"shop", "market", "cafe"}, "write": {"office", "classroom"}, "carry": {"warehouse"}}
 
 
 def _best(text, group):
@@ -72,7 +80,7 @@ def cast(board):
     board["mode"] = "explainer" if explainer else "story"
     first = shots[0].get("outfit") if shots and shots[0].get("outfit") in vocab.OUTFITS else None
     outfit = board.get("outfit") if board.get("outfit") in vocab.OUTFITS else (first or "casual")
-    if explainer and outfit not in ("casual", "suit"):
+    if explainer and outfit not in vocab.PRESENTER_OUTFITS:
         outfit = "casual"  # a presenter, not a farmer/doctor picked at random
 
     for s in shots:
@@ -94,20 +102,24 @@ def cast(board):
         about_hero = has(t, W["hero"]) or (name and norm(name).lower() in norm(t).lower()) \
             or has(t, W["male"] if gender == "male" else W["female"])
         acted = _best(t, "actions")
-        # very specific actions need support in the line or the props, else they look random
+        # very specific actions need support in the line, the props or the place, else they look random
         need = EVIDENCE.get(s["character"])
-        if need is not None and acted != s["character"] and not (need & set(s["props"])):
+        if need is not None and acted != s["character"] and not (need & set(s["props"])) \
+                and s["environment"] not in EVIDENCE_PLACES.get(s["character"], ()):
             s["character"] = acted or ("talk" if explainer else "idle")
         if s["character"] == "none":
             if about_hero:
                 s["character"] = acted or "idle"
             elif has(t, W["viewer"]):
                 s["character"] = "talk"  # the hero presents the takeaway to the viewer
-        elif s["character"] == "idle" and acted:
-            s["character"] = acted
+        elif s["character"] == "idle" and acted and (about_hero or explainer):
+            s["character"] = acted  # in a story the hero only acts out lines about themselves
         if s["character"] == "idle" and ("person" in s["props"] or explainer):
             s["character"] = "talk"  # talking to someone / presenting to the camera
         delivering = count(t, vocab.KEYWORDS["actions"]["carry"], "", vocab.KEYWORDS_BN["actions"]["carry"])
         if s["character"] in ("walk", "run") and delivering:
             s["character"] = "carry"
+        # selling, buying, a handshake or listening needs someone to do it with
+        if s["character"] in vocab.PARTNER_ACTIONS and not {"person", "crowd"} & set(s["props"]):
+            s["props"] = (["person"] + s["props"])[:3]
     return board

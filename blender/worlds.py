@@ -8,6 +8,7 @@ import math
 import bpy
 from mathutils import Vector
 
+import character
 import kit as K
 import props as P
 
@@ -426,9 +427,541 @@ def studio(env, T, c):
     env.sun_dir = Vector((0, 1, 1)).normalized()
 
 
+# ------------------------------------------------- everyday / business places ---
+# The camera looks along +Y and a vertical frame is narrow: set dressing that matters sits
+# behind the stage (|x| < ~3.5, y 2..6); the sides only show in orbit shots and landscape videos.
+
+FACADES = ["#f4a261", "#e9c46a", "#a8dadc", "#ffcad4", "#cdb4db", "#f1faee", "#b7e4c7", "#ffd6a5"]
+CARDBOARD = ["#c8a165", "#d4a373", "#bc8a5f", "#cfa46a"]
+
+
+def _checker_material(name, c1, c2, scale=1.5, rough=0.45):
+    def build(nt, bsdf):
+        tc = nt.nodes.new("ShaderNodeTexCoord")
+        ch = nt.nodes.new("ShaderNodeTexChecker")
+        ch.inputs["Scale"].default_value = scale
+        ch.inputs["Color1"].default_value = (*K.lin(c1), 1)
+        ch.inputs["Color2"].default_value = (*K.lin(c2), 1)
+        nt.links.new(tc.outputs["Object"], ch.inputs["Vector"])
+        nt.links.new(ch.outputs["Color"], bsdf.inputs["Base Color"])
+        bsdf.inputs["Roughness"].default_value = rough
+    return K.custom_material(name, build)
+
+
+def _interior(env, T, floor_mat, wall, back=4.6, height=8.0, world=("#e8e2d8", "#f5efe6", 0.45)):
+    env.indoor = True
+    _fog(T, 0, 1, 0.0)
+    K.world_gradient(*world)
+    K.box(18, 14, 0.2, loc=(0, 1, -0.1), material=floor_mat)
+    K.box(18, 0.3, height, base=True, loc=(0, back + 0.15, 0), color=wall)
+    K.box(18, 0.32, 0.22, base=True, loc=(0, back - 0.01, 0), color="#ffffff")
+    K.box(0.3, 14, height, base=True, loc=(-6.2, 1, 0), color=wall)
+    K.box(0.3, 14, height, base=True, loc=(6.2, 1, 0), color=wall)
+
+
+def _extra(c, x, y, facing, action, kind=None, outfit="casual", scale=1.0, seated=False, mode=None,
+           travel=True, hand=0):
+    """A background person (shopper, tea drinker, colleague...)."""
+    kind = kind or c.rng.choice(["man", "woman", "man", "woman", "old_man", "boy", "girl"])
+    look = character.random_look(c.rng, kind)
+    ch = character.build(look, c, loc=(x, y, 0), scale=scale, outfit=outfit)
+    character.act(ch, action, c, phase=c.rng.uniform(0, 3), facing=facing, travel=travel, seated=seated,
+                  mode=mode, hand=hand)
+    return ch
+
+
+def _plant(c, x, y, s=1.0):
+    K.cyl(0.25 * s, 0.5 * s, r2=0.2 * s, seg=12, base=True, loc=(x, y, 0), color="#e9ecef", kind="gloss")
+    for i in range(6):
+        a = K.TAU * i / 6 + c.rng.uniform(0, 0.5)
+        leaf = K.ico(0.3 * s, sub=1, loc=(x + 0.18 * s * math.cos(a), y + 0.18 * s * math.sin(a), 0.9 * s),
+                     scale=(0.5, 0.5, 1.5), color=c.rng.choice(["#40916c", "#52b788", "#2d6a4f"]))
+        leaf.rotation_euler = (0.45 * math.sin(a), 0.45 * math.cos(a), 0)
+        K.sway(leaf, 0.04, 0.3, 0, i)
+
+
+def _lamp(x, y, z, night, top=8.0, color="#212529"):
+    K.cyl(0.01, top - z, seg=4, base=True, loc=(x, y, z + 0.25), color=color)
+    K.cone(0.3, 0.28, seg=20, loc=(x, y, z + 0.12), color=color, kind="gloss")
+    K.sphere(0.09, seg=10, rings=6, loc=(x, y, z - 0.02), color="#fff3c4", kind="emit", emit=8)
+    K.light("POINT", 120 if night else 50, "#ffd8a8", loc=(x, y, z - 0.18), size=0.2, shadow=False)
+
+
+def _shelf_unit(c, x, y, w=2.8, h=2.5, levels=(0.25, 0.85, 1.45, 2.05), wood="#8d6e63"):
+    """Shelves against a back wall, full of products facing the camera."""
+    d = 0.5
+    K.box(w, 0.04, h, base=True, loc=(x, y + d / 2, 0), color=K.shade(wood, 0.75))
+    for sx in (-1, 1):
+        K.box(0.05, d, h, base=True, loc=(x + sx * w / 2, y, 0), color=wood)
+    for z in levels:
+        K.box(w, d, 0.04, base=True, loc=(x, y, z - 0.04), color=wood)
+        px = x - w / 2 + 0.08
+        while px < x + w / 2 - 0.2:
+            col = c.rng.choice(P.PRODUCT_COLS)
+            r = c.rng.random()
+            if r < 0.5:
+                bw, bh = c.rng.uniform(0.12, 0.22), c.rng.uniform(0.2, 0.38)
+                K.box(bw, 0.26, bh, base=True, loc=(px + bw / 2, y - 0.05, z), color=col, kind="gloss")
+                if c.rng.random() < 0.6:
+                    K.box(bw + 0.004, 0.262, bh * 0.25, base=True, loc=(px + bw / 2, y - 0.05, z + bh * 0.4),
+                          color="#ffffff")
+                px += bw + 0.025
+            elif r < 0.8:
+                rad, bh = c.rng.uniform(0.045, 0.065), c.rng.uniform(0.22, 0.32)
+                K.cyl(rad, bh, seg=10, base=True, loc=(px + rad, y - 0.08, z), color=col, kind="gloss")
+                K.cyl(rad * 0.4, 0.07, seg=8, base=True, loc=(px + rad, y - 0.08, z + bh), color="#f8f9fa")
+                px += 2 * rad + 0.03
+            else:
+                rad = c.rng.uniform(0.07, 0.09)
+                K.cyl(rad, 0.17, seg=12, base=True, loc=(px + rad, y - 0.08, z), color=col, kind="gloss")
+                K.cyl(rad * 1.05, 0.04, seg=12, base=True, loc=(px + rad, y - 0.08, z + 0.17), color="#343a40",
+                      kind="metal")
+                px += 2 * rad + 0.03
+
+
+def shop(env, T, c):
+    night = env.time == "night"
+    wall = c.rng.choice(["#fdf0d5", "#e9f5db", "#f1e3d3", "#dbe7e4"])
+    _interior(env, T, _checker_material("shop_floor", "#e9ecef", "#c9cfd6", 1.4), wall)
+    for ux in (-1.45, 1.45):
+        _shelf_unit(c, ux, 4.15)
+    # shop banner over the shelves
+    K.box(7.0, 0.06, 0.55, loc=(0, 4.38, 3.0), color=c.accent, kind="emit", emit=0.9)
+    for i in range(7):
+        K.cyl(0.11, 0.02, seg=16, loc=(-3.0 + i, 4.34, 3.0), rot=(math.pi / 2, 0, 0), color="#ffffff",
+              kind="emit", emit=1.2)
+    # drinks fridge (left)
+    fx, fy = -3.75, 3.85
+    K.box(1.1, 0.75, 2.1, base=True, loc=(fx, fy, 0), color="#f8f9fa", kind="gloss", bevel=0.03)
+    K.box(0.95, 0.02, 1.7, loc=(fx, fy - 0.36, 1.0), color="#bde0fe", kind="emit", emit=0.6)
+    for zz in (0.35, 0.85, 1.35):
+        K.box(0.95, 0.3, 0.02, loc=(fx, fy - 0.2, zz - 0.02), color="#ced4da")
+        for k in range(6):
+            K.cyl(0.045, 0.26, seg=10, base=True, loc=(fx - 0.38 + k * 0.15, fy - 0.28, zz),
+                  color=c.rng.choice(("#e63946", "#ff9f1c", "#06d6a0", "#3a86ff", "#212529")), kind="gloss")
+    K.box(0.97, 0.02, 1.72, loc=(fx, fy - 0.4, 1.0), color="#caf0f8", kind="glass")
+    K.box(1.1, 0.05, 0.22, loc=(fx, fy - 0.39, 1.98), color=c.accent, kind="emit", emit=1.5)
+    # counter with a cash register (right)
+    cx, cy = 3.0, 2.55
+    K.box(2.0, 0.8, 1.0, base=True, loc=(cx, cy, 0), color="#8d5524", kind="gloss", bevel=0.02)
+    K.box(2.06, 0.86, 0.05, base=True, loc=(cx, cy, 1.0), color="#212529", kind="gloss")
+    K.box(1.9, 0.02, 0.5, loc=(cx, cy - 0.41, 0.55), color=c.accent)
+    K.box(0.45, 0.4, 0.18, base=True, loc=(cx - 0.45, cy + 0.05, 1.05), color="#495057", kind="gloss",
+          bevel=0.02)
+    K.box(0.32, 0.03, 0.2, loc=(cx - 0.45, cy - 0.06, 1.38), rot=(0.3, 0, 0), color="#4cc9f0", kind="emit",
+          emit=2)
+    K.cyl(0.14, 0.32, seg=16, base=True, loc=(cx + 0.35, cy, 1.05), color="#e9f5ff", kind="glass")
+    for k in range(10):
+        K.sphere(0.04, seg=8, rings=5, loc=(cx + 0.35 + c.rng.uniform(-0.08, 0.08), cy + c.rng.uniform(-0.08, 0.08),
+                                            1.1 + 0.03 * k), color=c.rng.choice(P.PRODUCT_COLS), kind="gloss")
+    for x in (-2.2, 0.0, 2.2):
+        _lamp(x, 1.8, 3.6, night)
+    K.light("AREA", 420, "#fff4e6", loc=(0, 0.5, 6.0), size=7)
+    K.box(3.0, 1.8, 0.01, base=True, loc=(0, 0.4, 0), color=K.shade(c.accent, 0.55))
+
+
+AWNINGS = [("#e63946", "#f1faee"), ("#2a9d8f", "#e9c46a"), ("#457b9d", "#f1faee"), ("#f4a261", "#fefae0"),
+           ("#6a4c93", "#ffca3a"), ("#06d6a0", "#fefae0")]
+GOODS = ["#fb8500", "#e63946", "#80b918", "#ffd60a", "#6a4c93", "#d00000", "#90be6d"]
+
+
+def _stall(c, x, y, side, night, detail=True):
+    """Market stall on the left (side=-1) or right (side=1) of the street, open towards the street."""
+    root = K.empty("stall", loc=(x, y, 0))
+    a, b = c.rng.choice(AWNINGS)
+    tw, td = 2.4, 1.0
+    K.box(td, tw, 0.75, base=True, parent=root, color="#8d5524")
+    K.box(td + 0.08, tw + 0.08, 0.05, base=True, parent=root, loc=(0, 0, 0.75), color="#6f4518")
+    for dx in (-td / 2, td / 2):
+        for dy in (-tw / 2, tw / 2):
+            K.cyl(0.035, 2.5, seg=6, base=True, parent=root, loc=(dx, dy, 0), color="#6f4518")
+    n = 6
+    for i in range(n):
+        yy = -tw / 2 + tw * (i + 0.5) / n
+        K.box(1.6, tw / n + 0.002, 0.03, parent=root, loc=(-side * 0.25, yy, 2.45), rot=(0, -side * 0.32, 0),
+              color=a if i % 2 else b)
+    K.box(0.03, tw, 0.18, parent=root, loc=(-side * 1.02, 0, 2.12), color=a)
+    for k in range(3):
+        yy = -0.8 + 0.8 * k
+        col = c.rng.choice(GOODS)
+        K.sphere(0.36, seg=12, rings=6, parent=root, loc=(-side * 0.05, yy, 0.8), scale=(1, 1, 0.5), color=col)
+        if detail:
+            for _ in range(7):
+                K.sphere(0.08, seg=8, rings=5, parent=root,
+                         loc=(-side * 0.05 + c.rng.uniform(-0.22, 0.22), yy + c.rng.uniform(-0.22, 0.22),
+                              0.92 + c.rng.uniform(0, 0.06)), color=col, kind="gloss")
+    K.sphere(0.06, seg=8, rings=5, parent=root, loc=(-side * 0.6, 0, 2.15), color="#fff3c4", kind="emit",
+             emit=8 if night else 2)
+    if night and detail:
+        K.light("POINT", 60, "#ffd8a8", loc=(x - side * 0.6, y, 2.0), size=0.2, shadow=False)
+    return root
+
+
+def _street_buildings(c, xs, y0, y1, step=5.0, front=False):
+    """Low colourful buildings; windows face the street (x = 0) or, with front=True, the camera."""
+    win = dict(color="#ffd27a", kind="emit", emit=2) if c.night else dict(color="#22344f", kind="gloss")
+    y = y0
+    while y < y1:
+        for x in xs:
+            h = c.rng.uniform(3.5, 7.5)
+            w = c.rng.uniform(3.6, 4.6)
+            K.box(4.2, w, h, base=True, loc=(x, y, 0), color=c.rng.choice(FACADES))
+            K.box(4.3, w + 0.1, 0.2, base=True, loc=(x, y, h), color="#6c757d")
+            for z in [1.6 + 1.5 * k for k in range(int((h - 1) / 1.5))]:
+                if front:
+                    for dx in (-1.1, 0.0, 1.1):
+                        K.box(0.6, 0.04, 0.7, loc=(x + dx, y - w / 2 - 0.01, z), **win)
+                else:
+                    K.box(0.04, 0.6, 0.7, loc=(x - math.copysign(2.12, x), y, z), **win)
+        y += step
+
+
+def market(env, T, c):
+    night = env.time == "night"
+    _fog(T, 25, 120, 0.55)
+    _sky_and_sun(env, T, c)
+    K.grid(size=80, res=2, name="street", material=K.two_tone_material("street", "#b8a48c", "#a8937a", 0.25))
+    K.box(4.4, 90, 0.01, base=True, loc=(0, 40, 0), color="#9a8670")
+    for side in (-1, 1):
+        for y in range(2, 38, 3):
+            _stall(c, side * 3.5, y + (0.0 if side < 0 else 1.4), side, night, detail=y < 14)
+    _street_buildings(c, (-7.6, 7.6), -2, 44)
+    for x in range(-14, 15, 5):
+        h = c.rng.uniform(5, 9)
+        K.box(4.8, 4, h, base=True, loc=(x, 46, 0), color=c.rng.choice(FACADES))
+    for y in (5.0, 11.0, 17.0, 23.0):
+        prev = None
+        for i in range(13):
+            u = i / 12
+            p = Vector((-3.0 + 6.0 * u, y, 3.4 - 0.45 * math.sin(math.pi * u)))
+            f = K.prism([(-0.13, 0), (0.13, 0), (0, -0.28)], depth=0.01, loc=p,
+                        color=c.rng.choice(["#e63946", "#ffd60a", "#06d6a0", "#3a86ff", "#ff006e", "#ffffff"]))
+            K.sway(f, 0.15, 0.7, 0, c.rng.uniform(0, 6))
+            if prev is not None:
+                K.segment(prev, p, r=0.006, color="#495057")
+            prev = p
+    for (x, y, facing) in ((-1.9, 9.0, 0.0), (1.8, 12.0, math.pi), (-1.3, 16.0, math.pi), (2.2, 7.5, 0.15),
+                           (0.6, 20.0, 0.0)):
+        _extra(c, x, y, facing, "walk")
+    _extra(c, -4.3, 2.2, math.pi / 2 - 0.5, "talk", outfit="shopkeeper", travel=False)
+    _extra(c, 4.3, 3.6, -math.pi / 2 + 0.5, "give", outfit="shopkeeper", travel=False)
+
+
+def office(env, T, c):
+    night = env.time == "night"
+    env.indoor = True
+    _fog(T, 0, 1, 0.0)
+    K.world_gradient(T["zenith"], T["horizon"], 0.9 if not night else 0.7, stars=T["stars"] * 0.4)
+    K.box(18, 14, 0.2, loc=(0, 1, -0.1), material=K.two_tone_material("office_floor", "#cbbba0", "#bba98c", 0.6))
+    gy = 5.0
+    K.box(18, 0.3, 4.2, base=True, loc=(0, gy + 0.2, 3.6), color="#e9ecef")
+    K.box(18, 0.3, 0.3, base=True, loc=(0, gy, 0), color="#adb5bd")
+    for x in range(-8, 9, 2):  # window frames (no glass pane: it reflects the sky and looks milky)
+        K.box(0.1, 0.14, 3.6, base=True, loc=(x, gy, 0), color="#343a40", kind="metal")
+    K.box(18, 0.14, 0.08, base=True, loc=(0, gy, 1.9), color="#343a40", kind="metal")
+    for x in (-6.2, 6.2):
+        K.box(0.3, 14, 8, base=True, loc=(x, 1, 0), color="#e9ecef")
+    elev, az = math.radians(T["elev"]), math.radians(T["az"])
+    sun = K.light("SUN", T["energy"] * 0.7, T["sun"], rot=(math.pi / 2 - elev, 0, az), size=math.radians(3))
+    env.sun_dir = (sun.matrix_world.to_3x3() @ Vector((0, 0, 1))).normalized()
+    # the city far below
+    K.grid(size=150, res=2, loc=(0, 0, -24), color="#6c757d")
+    for _ in range(20):  # far enough away that sky shows between the towers
+        x, y = c.rng.uniform(-55, 55), c.rng.uniform(20, 95)
+        w = c.rng.uniform(5, 8)
+        P.tower(c, None, (x, y, -24), w, w * c.rng.uniform(0.8, 1.2), c.rng.uniform(22, 34) + y * 0.1)
+    # desks: a monitor facing the camera (left), a colleague at a laptop (right)
+    for (x, y, sitter) in ((-2.5, 3.5, False), (2.5, 3.4, True)):
+        K.box(1.7, 0.8, 0.05, base=True, loc=(x, y, 0.72), color="#f8f9fa", kind="gloss")
+        for dx in (-0.78, 0.78):
+            K.box(0.05, 0.7, 0.72, base=True, loc=(x + dx, y, 0), color="#adb5bd", kind="metal")
+        if not sitter:
+            K.box(0.25, 0.16, 0.02, base=True, loc=(x, y + 0.15, 0.77), color="#343a40")
+            K.box(0.05, 0.05, 0.25, base=True, loc=(x, y + 0.18, 0.77), color="#343a40")
+            K.box(0.8, 0.04, 0.48, base=True, loc=(x, y + 0.16, 0.95), color="#212529", kind="gloss")
+            K.box(0.74, 0.01, 0.42, base=True, loc=(x, y + 0.135, 0.98), color="#1d3557", kind="emit", emit=1.5)
+            for k, hgt in enumerate((0.1, 0.18, 0.14, 0.26, 0.3)):
+                K.box(0.08, 0.008, hgt, base=True, loc=(x - 0.22 + k * 0.11, y + 0.128, 1.02),
+                      color=("#4cc9f0", "#06d6a0", "#ffd166", "#f72585", "#4cc9f0")[k], kind="emit", emit=3)
+            K.box(0.5, 0.16, 0.02, base=True, loc=(x, y - 0.15, 0.77), color="#dee2e6")
+            K.cyl(0.05, 0.1, seg=12, base=True, loc=(x + 0.55, y - 0.1, 0.77), color=c.accent, kind="gloss")
+        else:
+            lap = P.laptop(c)
+            lap.root.location = (x, y - 0.05, 0.77)
+            lap.root.rotation_euler.z = math.pi
+            lap.root.scale = (0.5, 0.5, 0.5)
+            _extra(c, x, y + 0.75, 0.0, "work", outfit="office", seated=True, mode="type", travel=False)
+            K.box(0.5, 0.45, 0.06, base=True, loc=(x, y + 0.78, 0.4), color="#212529")
+        K.box(0.3, 0.22, 0.04, base=True, loc=(x - 0.5, y - 0.1, 0.77), color="#ffffff")
+    for x in (-3.9, 3.9):
+        _plant(c, x, 4.4, 1.2)
+    K.light("AREA", 380 if not night else 300, "#fff6ea", loc=(0, 0.5, 6), size=8)
+
+
+def _tea_stall(c, x, y, night):
+    root = K.empty("tea_stall", loc=(x, y, 0))
+    wood, dark = "#a0522d", "#6f4518"
+    paint = c.rng.choice(["#2a9d8f", "#457b9d", "#e76f51", "#3a86ff"])
+    W, D = 2.8, 1.4
+    p = dict(parent=root)
+    K.box(W, D, 0.08, base=True, color=dark, **p)
+    K.box(W, 0.06, 2.6, base=True, loc=(0, D / 2, 0), color=paint, **p)
+    for sx in (-1, 1):
+        K.box(0.06, D, 2.6, base=True, loc=(sx * W / 2, 0, 0), color=paint, **p)
+    K.box(W, 0.5, 1.0, base=True, loc=(0, -D / 2 + 0.25, 0), color=wood, bevel=0.02, **p)
+    K.box(W + 0.1, 0.6, 0.05, base=True, loc=(0, -D / 2 + 0.25, 1.0), color=dark, **p)
+    K.box(W + 0.6, D + 1.0, 0.05, loc=(0, -0.3, 2.72), rot=(0.12, 0, 0), color="#adb5bd", kind="metal", **p)
+    K.box(W * 0.8, 0.06, 0.38, loc=(0, -1.32, 2.86), color=c.accent, kind="emit", emit=2.5 if night else 0.7, **p)
+    for z in (1.55, 2.05):  # shelves with tins on the back wall
+        K.box(W - 0.3, 0.3, 0.03, base=True, loc=(0, D / 2 - 0.18, z), color=dark, **p)
+        for k in range(9):
+            K.cyl(0.06, 0.18, seg=10, base=True, loc=(-1.1 + 0.27 * k, D / 2 - 0.18, z + 0.03),
+                  color=c.rng.choice(P.PRODUCT_COLS), kind="gloss", **p)
+    top = 1.05
+    sx_, sy_ = -0.75, -D / 2 + 0.25
+    K.cyl(0.22, 0.25, r2=0.25, seg=16, base=True, loc=(sx_, sy_, top), color="#9c6644", **p)
+    K.cyl(0.18, 0.02, seg=16, base=True, loc=(sx_, sy_, top + 0.25), color="#ff6d00", kind="emit", emit=4, **p)
+    K.sphere(0.2, seg=16, rings=10, loc=(sx_, sy_, top + 0.42), scale=(1, 1, 0.8), color="#ced4da",
+             kind="metal", **p)
+    K.sphere(0.04, seg=8, rings=5, loc=(sx_, sy_, top + 0.58), color="#343a40", **p)
+    K.segment((sx_ + 0.15, sy_, top + 0.42), (sx_ + 0.34, sy_ - 0.05, top + 0.56), r=0.025, color="#ced4da",
+              kind="metal", **p)
+    K.torus(0.12, 0.012, seg=16, rseg=4, arc=0.5, loc=(sx_, sy_, top + 0.55), rot=(math.pi / 2, 0, 0),
+            color="#343a40", **p)
+    for i in range(6):  # steam from the spout
+        puff = K.ico(0.06, sub=1, color="#ffffff", **p)
+        base = Vector((sx_ + 0.36, sy_ - 0.05, top + 0.58))
+
+        def steam(t, s, ph=i / 6, base=base):
+            u = (t * 0.35 + ph) % 1.0
+            s.loc = base + Vector((0.15 * math.sin(u * 5), 0, u * 1.0))
+            s.scale *= max(1e-4, (0.5 + 2.0 * u) * (1 - u ** 2))
+        K.animate(puff, steam)
+    for k in range(4):  # glass jars of biscuits
+        jx = 0.05 + 0.32 * k
+        K.cyl(0.12, 0.3, seg=14, base=True, loc=(jx, sy_ - 0.05, top), color="#e9f5ff", kind="glass", **p)
+        K.cyl(0.1, 0.2, seg=12, base=True, loc=(jx, sy_ - 0.05, top), color=c.rng.choice(("#d4a373", "#e9c46a",
+                                                                                          "#bc6c25", "#f4a261")), **p)
+        K.cyl(0.125, 0.05, seg=14, base=True, loc=(jx, sy_ - 0.05, top + 0.3),
+              color=c.rng.choice(("#e63946", "#2a9d8f", "#ffd60a")), kind="gloss", **p)
+    K.box(0.5, 0.3, 0.02, base=True, loc=(-0.2, sy_ - 0.05, top), color="#adb5bd", kind="metal", **p)
+    for k in range(5):
+        K.cyl(0.04, 0.07, seg=10, base=True, loc=(-0.38 + 0.09 * k, sy_ - 0.05, top + 0.02), color="#f8f9fa", **p)
+    bunch = K.empty("bananas", loc=(1.0, -D / 2 + 0.05, 2.25), **p)
+    K.cyl(0.02, 0.4, seg=6, base=True, parent=bunch, color="#6f4518")
+    for k in range(9):
+        a = K.TAU * k / 9
+        bn = K.sphere(0.05, seg=8, rings=5, parent=bunch, loc=(0.09 * math.cos(a), 0.09 * math.sin(a), -0.05 * (k % 3)),
+                      scale=(1, 1, 2.6), color="#ffd60a")
+        bn.rotation_euler = (0.35 * math.sin(a), -0.35 * math.cos(a), 0)
+    K.sway(bunch, 0.06, 0.4, 0)
+    for k in range(6):  # snack packets on a string
+        pk = K.box(0.12, 0.03, 0.18, loc=(-0.5 + 0.18 * k, -D / 2 + 0.02, 2.2),
+                   color=c.rng.choice(P.PRODUCT_COLS), kind="gloss", **p)
+        K.sway(pk, 0.08, 0.5, 1, k)
+    K.segment((-0.65, -D / 2 + 0.02, 2.32), (0.5, -D / 2 + 0.02, 2.32), r=0.005, color="#495057", **p)
+    K.sphere(0.07, seg=8, rings=5, loc=(-0.2, -0.2, 2.45), color="#fff3c4", kind="emit", emit=8 if night else 2, **p)
+    if night:
+        K.light("POINT", 150, "#ffd8a8", loc=(x - 0.2, y - 0.4, 2.3), size=0.2)
+    return root
+
+
+def _bench(x, y, rot, color="#8d5524"):
+    b = K.empty("bench", loc=(x, y, 0), rot=(0, 0, rot))
+    K.box(1.7, 0.36, 0.06, base=True, parent=b, loc=(0, 0, 0.42), color=color)
+    for dx in (-0.7, 0.7):
+        K.box(0.06, 0.3, 0.42, base=True, parent=b, color=K.shade(color, 0.7), loc=(dx, 0, 0))
+    return b
+
+
+def cafe(env, T, c):
+    night = env.time == "night"
+    _fog(T, 22, 110, 0.6)
+    _sky_and_sun(env, T, c)
+    K.grid(size=80, res=2, name="ground", material=K.two_tone_material("dust", "#c9b48a", "#b8a275", 0.2))
+    K.box(160, 5.0, 0.03, base=True, loc=(0, 10.5, 0), color="#495057")
+    for x in range(-60, 61, 5):
+        K.box(2.0, 0.12, 0.04, base=True, loc=(x, 10.5, 0), color="#f8f9fa")
+    _tea_stall(c, 0.0, 3.8, night)
+    for (bx, by, rot) in ((-2.3, 1.6, 0.35), (2.4, 1.7, -0.35)):
+        _bench(bx, by, rot)
+    _extra(c, 0.35, 4.1, 0.0, "idle", kind="man", outfit="shopkeeper", travel=False)
+    _extra(c, -2.3, 1.75, 0.35 + 0.6, "drink", seated=True, travel=False)
+    _street_buildings(c, list(range(-26, 27, 6)), 17, 18, front=True)
+    for x in (-5.5, 5.5, 16.5):
+        K.cyl(0.08, 7.0, seg=8, base=True, loc=(x, 7.6, 0), color="#6c757d")
+        K.box(1.4, 0.08, 0.08, loc=(x, 7.6, 6.6), color="#6c757d")
+    for dz in (6.6, 6.3):
+        for (x1, x2) in ((-16.5, -5.5), (-5.5, 5.5), (5.5, 16.5)):
+            prev = None
+            for i in range(9):
+                u = i / 8
+                pt = Vector((x1 + (x2 - x1) * u, 7.6, dz - 0.6 * math.sin(math.pi * u)))
+                if prev is not None:
+                    K.segment(prev, pt, r=0.012, color="#212529")
+                prev = pt
+    for (tx, ty) in ((-6.0, 6.0), (6.5, 5.5), (-10.0, 14.0), (11.0, 13.0)):
+        _place(P.tree(c), env, tx, ty, c.rng.uniform(1.3, 1.8), rng=c.rng)
+    if "rickshaw" not in getattr(c, "props", ()):
+        r = P.rickshaw(c)
+        r.root.location = (-1.0, 10.0, 0)
+
+
+def classroom(env, T, c):
+    night = env.time == "night"
+    wall = c.rng.choice(["#e9f5db", "#fdf0d5", "#dbe7e4", "#f1e3d3"])
+    _interior(env, T, K.two_tone_material("wood_floor", "#c8a27a", "#b08968", 0.6), wall)
+    bx, bz = -0.5, 2.15
+    K.box(4.6, 0.1, 2.0, loc=(bx, 4.42, bz), color="#6f4518")
+    K.box(4.4, 0.06, 1.8, loc=(bx, 4.38, bz), color="#2d4a3e")
+    K.box(4.4, 0.2, 0.05, base=True, loc=(bx, 4.28, bz - 1.02), color="#6f4518")
+    chalk = dict(color="#f1f3f5", kind="emit", emit=0.5)
+    K.torus(0.36, 0.014, seg=32, rseg=4, loc=(bx - 1.4, 4.34, bz + 0.2), rot=(math.pi / 2, 0, 0), **chalk)
+    for a in (0.4, 2.3, 4.0):
+        K.segment((bx - 1.4, 4.34, bz + 0.2), (bx - 1.4 + 0.36 * math.cos(a), 4.34, bz + 0.2 + 0.36 * math.sin(a)),
+                  r=0.012, **chalk)
+    K.segment((bx - 0.9, 4.34, bz + 0.2), (bx - 0.5, 4.34, bz + 0.2), r=0.014, **chalk)
+    K.cone(0.05, 0.12, seg=6, loc=(bx - 0.45, 4.34, bz + 0.2), rot=(0, math.pi / 2, 0), **chalk)
+    K.box(1.4, 0.01, 0.035, loc=(bx + 0.5, 4.34, bz + 0.68), color="#ffd166", kind="emit", emit=0.6)
+    for row in range(5):
+        x = bx - 0.25
+        while x < bx + 1.9:
+            w = c.rng.uniform(0.12, 0.35)
+            line = K.box(w, 0.01, 0.03, loc=(x + w / 2, 4.34, bz + 0.42 - row * 0.22), **chalk)
+            d0 = c.t0 + 0.2 * row + (x - bx) * 0.3
+
+            def write(t, s, d0=d0):
+                s.scale.x *= max(1e-4, K.clamp((t - d0) / 0.25))
+            K.animate(line, write)
+            x += w + 0.06
+    # teacher's desk with books, a globe and an apple
+    tx, ty = 2.7, 3.2
+    K.box(1.6, 0.75, 0.06, base=True, loc=(tx, ty, 0.74), color="#8d5524", kind="gloss")
+    K.box(1.55, 0.04, 0.7, base=True, loc=(tx, ty - 0.33, 0.05), color="#6f4518")
+    for dx in (-0.76, 0.76):
+        K.box(0.06, 0.7, 0.74, base=True, loc=(tx + dx, ty, 0), color="#6f4518")
+    for k in range(3):
+        K.box(0.4, 0.28, 0.07, base=True, loc=(tx - 0.45, ty, 0.8 + 0.07 * k), rot=(0, 0, 0.1 * k),
+              color=("#e63946", "#457b9d", "#2a9d8f")[k])
+    K.cyl(0.04, 0.2, seg=8, base=True, loc=(tx + 0.4, ty + 0.1, 0.8), color="#6f4518")
+    globe = K.sphere(0.17, seg=16, rings=10, loc=(tx + 0.4, ty + 0.1, 1.16), color="#4895ef", kind="gloss")
+    K.spin(globe, 0.1, 2)
+    K.sphere(0.07, seg=10, rings=6, loc=(tx + 0.05, ty - 0.15, 0.86), color="#d00000", kind="gloss")
+    # students at their desks, looking at the board
+    for (sx, sy, rot, kind) in ((-2.6, 2.2, math.pi + 0.45, "girl"), (-1.6, 3.2, math.pi + 0.2, "boy")):
+        K.box(0.8, 0.5, 0.05, base=True, loc=(sx, sy + 0.45, 0.62), color="#ced4da")
+        for dx in (-0.36, 0.36):
+            K.box(0.04, 0.45, 0.62, base=True, loc=(sx + dx, sy + 0.45, 0), color="#6c757d", kind="metal")
+        _extra(c, sx, sy, rot, "read", kind=kind, outfit="student", scale=1.0, seated=True, travel=False)
+    # window, posters, clock
+    wx, wz = 3.6, 2.6
+    K.box(1.6, 0.12, 1.6, loc=(wx, 4.42, wz), color="#ffffff", kind="gloss")
+    sky = "#0b1d3a" if night else "#9ad1ff"
+    for dx in (-0.38, 0.38):
+        for dz in (-0.38, 0.38):
+            K.box(0.68, 0.05, 0.68, loc=(wx + dx, 4.36, wz + dz), color=sky, kind="emit", emit=0.6 if night else 3.0)
+    K.light("AREA", 80 if night else 650, "#9fb4ff" if night else "#fff1d6", loc=(wx, 3.6, wz), target=(0, 0, 1),
+            size=2)
+    for k, col in enumerate(("#ffadad", "#9bf6ff", "#fdffb6")):
+        K.box(0.5, 0.03, 0.65, loc=(-3.6 + 0.6 * k, 4.42, 3.75), color=col)
+    clk = P.clock(c)
+    clk.root.location = (bx, 4.3, 3.65)
+    clk.root.scale = (0.38, 0.38, 0.38)
+    K.light("AREA", 300 if not night else 200, "#fff4e6", loc=(0, 0.5, 6.0), size=7)
+
+
+def _rack(c, x, y, length=2.8, levels=(0.15, 1.45, 2.75, 4.05), depth=1.1):
+    for dy in (-length / 2, length / 2):
+        for dx in (-depth / 2, depth / 2):
+            K.box(0.08, 0.08, 4.6, base=True, loc=(x + dx, y + dy, 0), color="#1d4e89", kind="metal")
+    for z in levels:
+        for dx in (-depth / 2, depth / 2):
+            K.box(0.06, length, 0.1, base=True, loc=(x + dx, y, z), color="#fb8500", kind="metal")
+        K.box(depth, length, 0.03, base=True, loc=(x, y, z + 0.1), color="#adb5bd", kind="metal")
+        yy = y - length / 2 + 0.08
+        while yy < y + length / 2 - 0.5:
+            w = c.rng.uniform(0.45, 0.8)
+            if c.rng.random() > 0.18:
+                hgt = c.rng.uniform(0.4, 0.95)
+                K.box(depth * 0.85, w, hgt, base=True, loc=(x, yy + w / 2, z + 0.13),
+                      color=c.rng.choice(CARDBOARD), bevel=0.01)
+                K.box(depth * 0.86, 0.08, 0.012, base=True, loc=(x, yy + w / 2, z + 0.13 + hgt), color="#e9d8a6")
+            yy += w + 0.08
+
+
+def _forklift(c, x, y, rot):
+    f = K.empty("forklift", loc=(x, y, 0), rot=(0, 0, rot))
+    p = dict(parent=f)
+    yellow = "#ffc300"
+    K.box(0.95, 1.3, 0.55, base=True, loc=(0, 0.1, 0.22), color=yellow, kind="gloss", bevel=0.04, **p)
+    K.box(0.9, 0.42, 0.55, base=True, loc=(0, 0.6, 0.77), color="#343a40", kind="gloss", **p)
+    K.box(0.42, 0.36, 0.1, base=True, loc=(0, 0.25, 0.77), color="#212529", **p)
+    K.box(0.42, 0.08, 0.45, base=True, loc=(0, 0.42, 0.87), color="#212529", **p)
+    for dx in (-0.42, 0.42):
+        for dy in (-0.35, 0.5):
+            K.box(0.05, 0.05, 1.35, base=True, loc=(dx, dy, 0.77), color="#212529", kind="metal", **p)
+    K.box(0.95, 0.95, 0.05, base=True, loc=(0, 0.07, 2.1), color="#212529", kind="metal", **p)
+    for dx in (-0.3, 0.3):
+        K.box(0.08, 0.08, 2.3, base=True, loc=(dx, -0.62, 0.1), color="#495057", kind="metal", **p)
+    lift = K.empty("carriage", loc=(0, -0.68, 0.15), **p)
+    K.animate(lift, lambda t, s: s.loc.__setitem__(2, s.loc.z + 0.6 * K.smooth(0.5 + 0.6 * math.sin(t * 0.5))))
+    for dx in (-0.22, 0.22):
+        K.box(0.1, 0.9, 0.04, base=True, parent=lift, loc=(dx, -0.45, 0), color="#495057", kind="metal")
+    K.box(0.9, 0.9, 0.12, base=True, parent=lift, loc=(0, -0.45, 0.04), color="#a47148")
+    for (bx_, by_, bz_) in ((-0.2, -0.25, 0.16), (0.2, -0.25, 0.16), (-0.2, -0.65, 0.16), (0.2, -0.65, 0.16),
+                            (0.0, -0.45, 0.56)):
+        K.box(0.38, 0.38, 0.38, base=True, parent=lift, loc=(bx_, by_, bz_), color=c.rng.choice(CARDBOARD),
+              bevel=0.01)
+    for dx in (-0.45, 0.45):
+        for dy in (-0.4, 0.55):
+            K.cyl(0.2, 0.16, seg=14, loc=(dx, dy, 0.2), rot=(0, math.pi / 2, 0), color="#212529", **p)
+    return f
+
+
+def warehouse(env, T, c):
+    night = env.time == "night"
+    env.indoor = True
+    _fog(T, 0, 1, 0.0)
+    K.world_gradient("#cfd4da", "#e9ecef", 0.35)
+    K.box(24, 26, 0.2, loc=(0, 6, -0.1), material=K.two_tone_material("concrete", "#b8bec5", "#a3aab2", 0.4, rough=0.7))
+    back = 13.0
+    K.box(24, 0.3, 9, base=True, loc=(0, back + 0.15, 0), color="#dee2e6")
+    for x in (-7.0, 7.0):
+        K.box(0.3, 26, 9, base=True, loc=(x, 6, 0), color="#e9ecef")
+    for x in (-1.9, 1.9):
+        K.box(0.1, 13, 0.005, base=True, loc=(x, 6.5, 0), color="#ffd60a")
+    day = not night
+    K.box(3.6, 0.05, 3.8, base=True, loc=(0, back - 0.02, 0), color="#fff3d6" if day else "#1b263b", kind="emit",
+          emit=2.5 if day else 0.4)
+    for k in range(6):
+        K.box(3.7, 0.08, 0.13, base=True, loc=(0, back - 0.06, 3.1 + 0.13 * k), color="#adb5bd", kind="metal")
+    for x in (-1.9, 1.9):
+        K.box(0.2, 0.2, 4.0, base=True, loc=(x, back - 0.1, 0), color="#ffd60a")
+    if day:
+        K.light("AREA", 900, "#fff1d6", loc=(0, back - 0.4, 2.2), target=(0, 5, 0.5), size=3.5)
+    for side in (-1, 1):
+        for y0 in (3.2, 6.3, 9.4):
+            _rack(c, side * 3.4, y0)
+    _forklift(c, 1.0, 8.4, 0.5)
+    for (px, py) in ((-1.2, 10.8), (-0.4, 11.6)):
+        K.box(1.0, 1.0, 0.12, base=True, loc=(px, py, 0), color="#a47148")
+        for k in range(3):
+            K.box(0.45, 0.45, 0.4, base=True, loc=(px - 0.24 + 0.24 * (k % 2), py - 0.2 + 0.4 * (k // 2), 0.12),
+                  color=c.rng.choice(CARDBOARD), bevel=0.01)
+    for y in (3.0, 7.0, 11.0):
+        K.cyl(0.01, 2.5, seg=4, base=True, loc=(0, y, 6.3), color="#212529")
+        K.hemisphere(0.45, seg=16, rings=6, loc=(0, y, 6.3), rot=(math.pi, 0, 0), color="#343a40", kind="gloss")
+        K.sphere(0.12, seg=10, rings=6, loc=(0, y, 6.1), color="#fff3c4", kind="emit", emit=8)
+        K.light("POINT", 300 if night else 120, "#ffe8c2", loc=(0, y, 5.9), size=0.3, shadow=False)
+    _extra(c, -0.9, 9.6, 0.0, "carry", outfit="worker")
+    K.light("AREA", 380, "#fff6ea", loc=(0, 5, 8.5), size=10)
+
+
 BUILDERS = {
     "village": village, "forest": forest, "city": city, "space": space, "ocean": ocean,
     "desert": desert, "mountains": mountains, "snow": snow, "room": room, "studio": studio,
+    "shop": shop, "market": market, "office": office, "cafe": cafe, "classroom": classroom,
+    "warehouse": warehouse,
 }
 
 

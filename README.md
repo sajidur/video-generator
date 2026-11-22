@@ -174,32 +174,48 @@ Every scene in `output/<topic>/storyboard.json` looks like this:
 Change anything, save, and run the same topic again. Only the changed scenes are redone. Allowed
 values:
 
-- **environment:** village, forest, city, space, ocean, desert, mountains, snow, room, studio
+- **environment:**
+  - everyday and business places: shop, market (bazaar street), office, cafe (tea stall), classroom,
+    warehouse, room, city, studio (abstract ideas)
+  - nature: village, forest, mountains, desert, snow, ocean, space
 - **time:** day, sunrise, sunset, night
 - **character** (what the actor does): none, idle, walk, run, wave, celebrate, think, read, sad,
-  talk, point, work, carry, sit
+  talk, listen, point, work, carry, sit, give (sell / serve), buy (pay), shake_hands, phone, write,
+  announce (megaphone), thumbs_up, clap, shrug, drink (tea), push_cart, search
 - **hero:** boy, girl, man, woman, old_man, old_woman, robot
-- **outfit:** casual, poor, suit, farmer, shopkeeper, doctor, student, worker
+- **outfit:** casual, poor, suit, office, farmer, shopkeeper, chef, delivery, doctor, teacher, student,
+  worker, police, traditional (panjabi / saree), sports
 - **camera:** orbit, push_in, pull_out, pan, crane_up, low_angle, fly_over
 - **footage:** English words to search real clips with (footage style)
 - **props** (up to 3):
   - icons: lightbulb, heart, star, dollar, lock, magnifier, atom, dna, virus, gear, clock, trophy,
-    question, medical, speech_bubble, shield, lightning
+    question, medical, speech_bubble, shield, lightning, megaphone, target, price_tag, pie_chart, gift,
+    magnet, rating, likes, balance
   - on the ground: tree, pine_tree, house, car, rocket, books, coins, laptop, phone, bar_chart,
-    campfire, flag, boat, wind_turbine, flowers, rocks, crowd, person, signpost, stairs, factory
+    down_chart, campfire, flag, boat, wind_turbine, flowers, rocks, crowd, person, signpost, stairs,
+    factory, shopping_bag, shopping_cart, boxes, truck, shopfront, billboard, whiteboard, tv, produce,
+    rickshaw
   - landmarks: mountain, volcano, pyramid, buildings
   - sky: sun, moon, planet, earth, clouds, birds, airplane
 
-### The actor matches the story (3D style)
+### Every scene matches its line (3D style)
 
-After the AI plans the scenes, a casting step checks every line:
+After the AI plans the scenes, two checks go over every line:
 
+- **Place:** the scene happens where the line's example happens. A tea-stall example plays at the tea
+  stall, a mobile seller in a shop, a company in an office. A village, forest or mountain top is only
+  used when the story is really about it.
+- **Props:** things the line names come first: "advertising" shows a megaphone, "price" a price tag,
+  "segments" a pie chart, "social media" like bubbles.
 - **Who:** age and gender come from the story. The actor grows up when the story jumps ahead
   ("years passed", "বছর পর").
 - **Clothes:** the outfit follows the story, for example poor clothes, then a shop apron, then a suit.
-- **Action:** follows the verb. Delivering means carrying a parcel, explaining means talking,
-  learning means reading, succeeding means celebrating.
-- **Explainers:** topics that talk to "you" get one consistent presenter.
+- **Action:** follows the verb. Selling means handing over a product, paying means holding out money,
+  a deal means a handshake, delivering means carrying a parcel, learning means reading.
+- **The other person reacts:** when the actor sells, the customer pays; when the actor talks, they
+  listen and nod; a crowd claps for an announcement.
+- **Explainers:** topics that talk to "you" get one consistent presenter (everyday clothes, suit,
+  office wear or teacher).
 
 ---
 

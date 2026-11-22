@@ -47,7 +47,17 @@ class Focus:
 
 BIG_SPOTS = {"mountain": (32, 1.0), "volcano": (20, 0.9), "pyramid": (15, 1.0), "buildings": (15, 1.0)}
 SELF_ANIMATED = {"coins", "books", "bar_chart", "stairs", "flowers", "phone", "laptop", "crowd", "car",
-                 "rocket", "boat", "wind_turbine", "person"}
+                 "rocket", "boat", "wind_turbine", "person", "truck", "rickshaw", "boxes", "produce",
+                 "shopping_bag", "billboard", "whiteboard", "down_chart"}
+VEHICLES = {"car", "truck", "rickshaw"}            # drive past behind the actor, never through them
+BACKDROPS = {"billboard", "shopfront", "whiteboard", "tv"}  # tall things: stand behind the actor
+# how far the actor turns towards the other person / thing (1 = face them fully)
+TURN = {"shake_hands": 1.0, "give": 0.6, "buy": 0.6, "listen": 0.55, "talk": 0.45, "point": 0.45,
+        "announce": 0.35, "thumbs_up": 0.35}
+# where the other person stands (relative to the actor) for close interactions
+PARTNER_SPOT = {"shake_hands": (1.15, 0.0), "give": (1.3, 0.1), "buy": (1.3, 0.1)}
+FACING = {"walk": 1.15, "run": 1.2, "carry": 1.15, "push_cart": 1.15, "think": 0.3, "read": 0.15,
+          "phone": 0.25, "write": 0.2, "drink": 0.3, "search": 0.0}
 
 
 def layout(shot, env, c, hero):
@@ -55,6 +65,10 @@ def layout(shot, env, c, hero):
     action = shot.get("character", "none")
     if action not in vocab.ACTIONS:
         action = "idle"
+    c.hero_action = action  # the other person and the crowd react to it
+    if "person" in props and action in TURN:  # the person the actor deals with stands right next to them
+        props.remove("person")
+        props.insert(0, "person")
     kind = {p: vocab.prop_kind(p) for p in props}
     stage = [p for p in props if kind[p] in ("icon", "ground")]
     bigs = [p for p in props if kind[p] == "big"]
@@ -73,12 +87,11 @@ def layout(shot, env, c, hero):
     char_h = 0.0
     char_track = None
     ch = None
-    walking = action in ("walk", "run", "carry") and not space
+    walking = action in ("walk", "run", "carry", "push_cart") and not space
     c.work_mode = "type" if {"laptop", "phone"} & set(props) else ""
     if has_char:
         cx = -0.55 if stage else 0.0
-        facing = {"walk": 1.15, "run": 1.2, "carry": 1.15, "think": 0.3, "read": 0.15}.get(
-            action, c.rng.uniform(-0.3, 0.3))
+        facing = FACING.get(action, c.rng.uniform(-0.3, 0.3))
         z = 0.4 if space else ground(cx, 0)
         ch = character.build(hero, c, loc=(cx, 0, z), astronaut=space, outfit=hero.get("outfit"))
         if space:
@@ -124,6 +137,13 @@ def layout(shot, env, c, hero):
             focus.append(Focus((x, y, z), max(b.height, b.width) * 0.5 * s))
         else:
             s = 1.0 if i == 0 or not has_char else 0.85
+            if has_char and name in VEHICLES:
+                x, y = (0.4, 2.9) if i == 0 else (0.0, 4.2)
+            elif has_char and name in BACKDROPS:
+                x, y = (0.95, 2.3) if i == 0 else (-1.6, 2.8)
+            elif name == "person" and ch and i == 0 and action in PARTNER_SPOT:
+                dx, dy = PARTNER_SPOT[action]
+                x, y = ch["root"].location.x + dx, dy
             z = (0.0 if not space else -0.5) + ground(x, y)
             if env.water is not None and name == "boat":
                 x, y, z = (2.6, 2.0, env.water)
@@ -131,17 +151,18 @@ def layout(shot, env, c, hero):
             b.root.scale = (s, s, s)
             if name == "person" and ch:  # turn to the hero (3/4 view so the face stays visible)
                 hx, hy = ch["root"].location.x, ch["root"].location.y
-                b.root.rotation_euler.z = 0.7 * math.atan2(hx - x, -(hy - y))
+                k = 1.0 if action == "shake_hands" else 0.7
+                b.root.rotation_euler.z = k * math.atan2(hx - x, -(hy - y))
             if name not in SELF_ANIMATED:
                 K.pop(b.root, delay=c.t0 + 0.1 + 0.2 * i, dur=0.7)
             focus.append(Focus((x, y, z + b.height * 0.5 * s), max(b.height, b.width) * 0.5 * s))
 
-    # the hero turns towards whoever / whatever they talk to or point at
-    turns = action in ("talk", "point") or (action == "work" and c.work_mode == "type")
-    if ch and turns and len(focus) > 1:
+    # the hero turns towards whoever / whatever they talk to, point at or deal with
+    turn = TURN.get(action, 0.45 if action == "work" and c.work_mode == "type" else 0.0)
+    if ch and turn and len(focus) > 1:
         tx, ty = focus[1].center.x, focus[1].center.y
         hx, hy = ch["root"].location.x, ch["root"].location.y
-        ch["root"].rotation_euler.z = 0.45 * math.atan2(tx - hx, -(ty - hy))
+        ch["root"].rotation_euler.z = turn * math.atan2(tx - hx, -(ty - hy))
 
     hero_big = not focus
     for i, name in enumerate(bigs):
