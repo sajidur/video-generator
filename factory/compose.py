@@ -53,12 +53,13 @@ def compose(job, tl, narration, captions, out_mp4, q, music=None, music_volume=0
     post.append(f"subtitles=filename='{_filter_path(captions)}'")
     parts.append(f"[{last}]{','.join(post)}[vout]")
     total = tl["total_frames"] / fps
+    level = "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000"  # the loudness YouTube/Facebook/TikTok expect
     if music:
         parts.append(f"[{n + 1}:a]aresample=48000,volume={music_volume}[m]")
         parts.append(f"[{n}:a][m]amix=inputs=2:duration=first:normalize=0,"
-                     f"afade=t=out:st={max(0.0, total - 1.5):.3f}:d=1.5[aout]")
+                     f"afade=t=out:st={max(0.0, total - 1.5):.3f}:d=1.5,{level}[aout]")
     else:
-        parts.append(f"[{n}:a]anull[aout]")
+        parts.append(f"[{n}:a]{level}[aout]")
     cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]", "-map", "[aout]",
             "-r", str(fps), "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-t", f"{total:.3f}", str(out_mp4)]

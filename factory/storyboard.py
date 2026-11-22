@@ -415,8 +415,9 @@ def sanitize(board, title, lang):
     if not shots:
         raise ValueError("storyboard has no usable shots")
     out_title = " ".join(str(board.get("title") or title).split()) or title
-    if lang == "bn" and not any("ঀ" <= ch <= "৿" for ch in out_title):
-        out_title = title  # keep a Bangla title for a Bangla video
+    if lang == "bn" and (not any("ঀ" <= ch <= "৿" for ch in out_title)
+                         or _OTHER_SCRIPTS.search(out_title)):
+        out_title = title  # keep a clean Bangla title for a Bangla video (no English / Hindi mix)
     if not shots[0]["title_3d"] and lang == "en":
         shots[0]["title_3d"] = _clean_title3d(out_title, lang)
     hero = board.get("hero") if board.get("hero") in vocab.HEROES else "boy"

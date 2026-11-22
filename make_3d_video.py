@@ -20,7 +20,7 @@ import re
 import sys
 import time
 
-from factory import captions, compose, config, footage, publish, render, storyboard, voice
+from factory import captions, compose, config, footage, history, publish, render, storyboard, voice
 from factory.topics import Topic, detect_lang, load_topics
 
 
@@ -32,6 +32,8 @@ def parse_args():
     p.add_argument("--next", nargs="?", const=1, type=int, metavar="N",
                    help="make only the next N unfinished topics (default 1)")
     p.add_argument("--list", action="store_true", help="show the numbered topic list with status and stop")
+    p.add_argument("--history", action="store_true",
+                   help="show every video made and where it was uploaded (also saves output/history.csv)")
     p.add_argument("--quality", choices=list(config.QUALITY), default="standard",
                    help="draft = fast 540p test, standard = 720p render upscaled to 1080p, high = native 1080p")
     p.add_argument("--lang", choices=["en", "bn"],
@@ -132,7 +134,7 @@ def make(topic, args, q):
     caps = out / "captions.ass"
     w, h = q["out"]
     captions.write_ass(clips, [s["narration"] for s in board["shots"]], caps, w, h,
-                       config.CAPTION_FONTS.get(lang, "Arial"))
+                       config.CAPTION_FONTS.get(lang, "Arial"), publish.display_title(board), lang)
 
     # 4. 3D render (resumable) and 5. final video
     render.run_blender(job, out, log=log)
@@ -141,6 +143,7 @@ def make(topic, args, q):
         log(f"  music: {music.name}")
     log("  encoding video ...")
     compose.compose(job, tl, narration, caps, final, q, music)
+    record_made(topic, board, final, q)
     return final
 
 
@@ -162,13 +165,20 @@ def make_footage(topic, args, q, out, final, board, clips, tl, lang):
     voice.build_track(clips, narration)
     caps = out / "captions.ass"
     captions.write_ass(clips, [s["narration"] for s in board["shots"]], caps, *q["out"],
-                       config.CAPTION_FONTS.get(lang, "Arial"))
+                       config.CAPTION_FONTS.get(lang, "Arial"), publish.display_title(board), lang)
     music = compose.pick_music(topic.slug, args.music)
     if music:
         log(f"  music: {music.name}")
     log("  encoding video ...")
     compose.compose(job, tl, narration, caps, final, q, music)
+    record_made(topic, board, final, q)
     return final
+
+
+def record_made(topic, board, final, q):
+    history.add("made", slug=topic.slug, title=publish.display_title(board), style=q["style"],
+                quality=q["name"], seconds=round(voice.duration(final), 1),
+                size_mb=round(final.stat().st_size / 1e6, 1), file=str(final))
 
 
 def status(topic):
@@ -215,6 +225,9 @@ def main():
         except Exception as exc:
             log(f"Login failed: {exc}")
             return 1
+        return 0
+    if args.history:
+        history.show(log)
         return 0
     todo = [Topic(t, source="command line") for t in args.topics] or load_topics()
     if args.list:

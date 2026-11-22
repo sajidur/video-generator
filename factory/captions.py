@@ -50,8 +50,13 @@ def _esc(text):
     return text.replace("\\", "").replace("{", "(").replace("}", ")")
 
 
-def write_ass(clips, narrations, path, width, height, font):
+OUTRO = {"bn": "আরও জানতে ফলো করুন", "en": "Follow for more"}
+
+
+def write_ass(clips, narrations, path, width, height, font, title="", lang="en"):
+    """Word-timed captions + a title banner over the first shot + a short outro line at the end."""
     size = int(height * 0.043)
+    tsize = int(height * 0.036)
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -62,11 +67,18 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Cap,{font},{size},{WHITE},{WHITE},&H00101010,&H80000000,-1,0,0,0,100,100,0,0,1,{max(3, size // 12)},{max(2, size // 25)},2,{int(width * 0.08)},{int(width * 0.08)},{int(height * 0.2)},1
+Style: Title,{font},{tsize},{WHITE},{WHITE},&H50101010,&H64000000,-1,0,0,0,100,100,0,0,3,{max(10, tsize // 3)},0,8,{int(width * 0.07)},{int(width * 0.07)},{int(height * 0.1)},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events = []
+    total = sum(c["segment"] for c in clips)
+    if title and clips:  # hook banner over the first shot
+        end = min(clips[0]["segment"], 4.5)
+        events.append(f"Dialogue: 1,{_ts(0.15)},{_ts(end)},Title,,0,0,0,,{{\\fad(250,300)}}{_esc(title)}")
+    outro = OUTRO.get(lang, OUTRO["en"])
+    events.append(f"Dialogue: 1,{_ts(max(0.0, total - 1.6))},{_ts(total)},Title,,0,0,0,,{{\\fad(200,0)}}{outro}")
     offset = 0.0
     for clip, narration in zip(clips, narrations):
         words = _with_punctuation(clip["words"], narration)

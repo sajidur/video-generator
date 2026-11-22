@@ -16,7 +16,7 @@ import webbrowser
 
 import requests
 
-from . import config
+from . import config, history
 
 PLATFORMS = ("youtube", "facebook", "tiktok")
 TIKTOK_API = "https://open.tiktokapis.com/v2"
@@ -50,6 +50,15 @@ TAG_RULES = [  # (words to look for, hashtags to add)
 ]
 
 
+def display_title(board):
+    """The video's title without a trailing source ("— ... book") part (the source goes in the description)."""
+    title = board.get("title") or board.get("topic", "")
+    head, sep, tail = title.rpartition(" — ")
+    if sep and ("বই" in tail or "book" in tail.lower()):
+        title = head
+    return " ".join(title.split())
+
+
 def make_post(board, credits, out):
     """Title, description and hashtags for all platforms. Saved once; edit post.json to change it."""
     path = out / "post.json"
@@ -70,11 +79,7 @@ def make_post(board, credits, out):
     if names:
         parts.append(("ফুটেজ: " if lang == "bn" else "Footage: ") + ", ".join(names))
     parts.append(" ".join(hashtags[:12]))
-    title = board.get("title") or board.get("topic", "")
-    head, sep, tail = title.rpartition(" — ")
-    if sep and ("বই" in tail or "book" in tail.lower()):  # the source is credited in the description
-        title = head
-    title = _short(title, 95)
+    title = _short(display_title(board), 95)
     post = {"title": title, "description": "\n\n".join(parts),
             "tags": [t.lstrip("#") for t in hashtags if t != "#Shorts"], "hashtags": hashtags}
     _save_json(path, post)
@@ -382,5 +387,7 @@ def upload(out, video, platforms, log=print):
         info["time"] = time.strftime("%Y-%m-%d %H:%M")
         done[p] = info
         _save_json(record, done)
+        history.add("uploaded", slug=out.name, platform=p, url=info.get("url", ""),
+                    privacy=info.get("privacy", ""))
         log(f"  {p}: done -> {info.get('url')}")
     return done
