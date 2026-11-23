@@ -1,7 +1,9 @@
 """Narration: one edge-tts clip per shot (with word timings), then one padded track."""
+import array
 import asyncio
 import hashlib
 import json
+import math
 import subprocess
 import time
 
@@ -87,6 +89,31 @@ def synthesize(board, folder, voice, rate="+0%", log=print):
         if not any(old.stem == c["audio"].stem for c in clips):
             old.unlink(missing_ok=True)
     return clips
+
+
+def mouth_levels(audio, fps, frames, start, ffmpeg="ffmpeg"):
+    """How open a speaker's mouth is on each frame of a shot (0..1), from the voice's loudness.
+
+    start: shot time (seconds) at which this clip's audio begins."""
+    sr = 16000
+    raw = subprocess.run([ffmpeg, "-v", "error", "-i", str(audio), "-ac", "1", "-ar", str(sr), "-f", "s16le", "-"],
+                         capture_output=True, check=True).stdout
+    pcm = array.array("h")
+    pcm.frombytes(raw[: len(raw) // 2 * 2])
+    hop = sr / fps
+    rms = []
+    for f in range(frames):
+        i0 = int((f / fps - start) * sr)
+        seg = pcm[max(0, i0):max(0, min(len(pcm), int(i0 + hop)))]
+        rms.append(math.sqrt(sum(x * x for x in seg) / len(seg)) if len(seg) else 0.0)
+    loud = sorted(v for v in rms if v > 0)
+    peak = loud[int(len(loud) * 0.95)] if loud else 1.0
+    out, prev = [], 0.0
+    for v in rms:
+        v = min(1.0, max(0.0, (v / peak - 0.12) / 0.88))
+        prev = 0.65 * v + 0.35 * prev  # a little smoothing so the mouth doesn't flicker
+        out.append(round(prev, 2))
+    return out
 
 
 def build_track(clips, out_wav, ffmpeg="ffmpeg"):

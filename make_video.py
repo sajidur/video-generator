@@ -123,7 +123,7 @@ def make(topic, args, q):
     if q["style"] == "footage":
         return make_footage(topic, args, q, out, final, board, clips, tl, lang)
 
-    job = render.make_job(board, topic.slug, tl, q, out, titles=not args.no_titles and lang == "en")
+    job = render.make_job(board, topic.slug, tl, q, out, titles=not args.no_titles and lang == "en", clips=clips)
     if args.preview:
         render.run_blender(job, out, still=True, log=log)
         stills = [out / "frames" / f"preview_{i + 1:02d}.png" for i in range(len(job["shots"]))]

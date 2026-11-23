@@ -68,13 +68,22 @@ def ollama_status(model, log=print):
     return False, f"Ollama model '{model}' is not installed. Run:  ollama pull {model}"
 
 
+def _post(payload, tries=2):
+    """POST to Ollama; one retry when the server hiccups (5xx while loading a model)."""
+    for attempt in range(tries):
+        r = requests.post(f"{config.OLLAMA_URL}/api/chat", timeout=1800, json=payload)
+        if r.status_code < 500 or attempt == tries - 1:
+            r.raise_for_status()
+            return r
+        time.sleep(5)
+
+
 def _chat(model, system, user, schema, temperature=0.7):
-    r = requests.post(f"{config.OLLAMA_URL}/api/chat", timeout=1800, json={
-        "model": model, "stream": False, "format": schema,
+    r = _post({
+        "model": model, "stream": False, "format": schema, "think": False,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "options": {"temperature": temperature, "num_ctx": 8192, "num_predict": 3500},
     })
-    r.raise_for_status()
     text = r.json()["message"]["content"]
     try:
         return json.loads(text)
@@ -111,6 +120,7 @@ def _visual_props():
         "camera": _enum(vocab.CAMERAS),
         "title_3d": {"type": "string", "maxLength": 30},
         "footage": {"type": "string", "maxLength": 60},
+        "with": {"type": "string", "maxLength": 40},
     }
 
 
@@ -118,16 +128,21 @@ def _schema(with_narration):
     # maxLength keeps a looping model from writing one endless sentence
     shot = {"narration": {"type": "string", "maxLength": 320}} if with_narration else {}
     shot.update(_visual_props())
+    member = {"type": "object", "properties": {"name": {"type": "string", "maxLength": 40},
+                                               "type": _enum(h for h in vocab.HEROES if h != "robot"),
+                                               "outfit": _enum(vocab.OUTFITS)},
+              "required": ["name", "type", "outfit"]}
     return {
         "type": "object",
         "properties": {
             "title": {"type": "string", "maxLength": 120},
             "hero": _enum(vocab.HEROES),
             "hero_name": {"type": "string", "maxLength": 40},
+            "cast": {"type": "array", "maxItems": 3, "items": member},
             "shots": {"type": "array", "minItems": 4, "maxItems": 12,
                       "items": {"type": "object", "properties": shot, "required": list(shot)}},
         },
-        "required": ["title", "hero", "hero_name", "shots"],
+        "required": ["title", "hero", "hero_name", "cast", "shots"],
     }
 
 
@@ -175,6 +190,9 @@ VISUAL_RULES = """Rules for each shot's visuals:
   moment (poor when poor, shopkeeper while running a shop, suit when a successful businessman, ...).
 - hero: gender and age of the main character at the start (the boy grows up on his own when years pass).
 - hero_name: the main character's name if the story gives one, else "".
+- cast: the OTHER named people in the story (not the main character), at most 3, each with a type
+  (man, woman, boy, girl, old_man, old_woman) and an outfit. Use [] when nobody else is named.
+- with: the name of the cast member who is in this shot with the main character, else "".
 - camera: vary it between shots; fly_over or push_in make a good first shot.
 - footage: 2 to 5 ENGLISH words to search a stock-video site for REAL footage that shows this line:
   concrete things a camera can film (people, places, actions, objects), never abstract words.
@@ -230,13 +248,12 @@ def _line_ok(line, lang):
 def _write_script(model, title, seconds, lang, log):
     """Step 1: plain-text narration (small models write far better without a JSON straitjacket)."""
     for attempt, temp in enumerate((0.7, 0.5, 0.8)):
-        r = requests.post(f"{config.OLLAMA_URL}/api/chat", timeout=1800, json={
-            "model": model, "stream": False,
+        r = _post({
+            "model": model, "stream": False, "think": False,
             "messages": [{"role": "system", "content": SYSTEM},
                          {"role": "user", "content": _script_prompt(title, seconds, lang)}],
             "options": {"temperature": temp, "num_ctx": 8192, "num_predict": 1500},
         })
-        r.raise_for_status()
         raw = [_clean_line(x) for x in r.json()["message"]["content"].splitlines()]
         lines = [x for x in raw if x and _line_ok(x, lang)]
         dropped = len([x for x in raw if x]) - len(lines)
@@ -246,6 +263,45 @@ def _write_script(model, title, seconds, lang, log):
             return lines[:12]
         log(f"  script attempt {attempt + 1}: only {len(lines)} usable line(s); retrying ...")
     raise RuntimeError("the AI could not write a clean script for this topic; try --model gemma3:12b")
+
+
+def _review_prompt(title, lines, lang):
+    numbered = "\n".join(f"{i + 1}. {ln}" for i, ln in enumerate(lines))
+    return f"""You are a strict editor and an expert teacher of this subject. Below is the voice-over script
+for a short video about: "{title}"
+
+{numbered}
+
+Check and fix it:
+- Every statement must be correct and match the standard textbook meaning of the topic. If the topic
+  names a book, the definition and the parts of the idea must be the ones that book uses.
+- The video must really explain the topic: its exact definition and, if it has parts or steps, name
+  them all. Replace vague lines with clear, specific ones.
+- Fix broken, garbled, unnatural or wrong words, and sentences that make no sense.
+- No invented statistics, numbers, studies or quotes.
+- Keep the hook first and the takeaway last, 7 to 9 lines, each 12 to 25 words of simple spoken language.
+{SCRIPT_RULES.get(lang, SCRIPT_RULES["en"])}
+Return the full corrected script (all lines, also the ones that were already fine)."""
+
+
+def _review_script(model, title, lines, lang, log):
+    """Step 1b: the model re-reads its own script as an editor (facts, completeness, broken words)."""
+    schema = {"type": "object", "required": ["lines"], "properties": {
+        "lines": {"type": "array", "minItems": 5, "maxItems": 12, "items": {"type": "string", "maxLength": 320}}}}
+    try:
+        data = _chat(model, SYSTEM, _review_prompt(title, lines, lang), schema, temperature=0.3)
+    except (requests.RequestException, ValueError) as exc:
+        log(f"  self-check skipped ({exc})")
+        return lines
+    fixed = [x for x in (_clean_line(str(v)) for v in data.get("lines", [])) if x and _line_ok(x, lang)]
+    if len(fixed) < 5:
+        log("  self-check gave an unusable answer; keeping the first draft")
+        return lines
+    if len(fixed) > 9:  # keep the video short: the first 8 lines and the takeaway
+        fixed = fixed[:8] + fixed[-1:]
+    changed = sum(1 for a, b in zip(lines, fixed) if a != b) + abs(len(lines) - len(fixed))
+    log(f"  self-check: {changed} line(s) corrected")
+    return fixed
 
 
 def _visuals_prompt(title, lines):
@@ -425,6 +481,8 @@ def sanitize(board, title, lang):
             shot["hero"] = raw["hero"]
         if raw.get("outfit") in vocab.OUTFITS:
             shot["outfit"] = raw["outfit"]
+        if str(raw.get("with") or "").strip():
+            shot["with"] = " ".join(str(raw["with"]).split())[:40]
         shots.append(shot)
         prev_env = env
     if not shots:
@@ -440,6 +498,18 @@ def sanitize(board, title, lang):
            "hero_name": " ".join(str(board.get("hero_name") or "").split())[:40], "shots": shots[:12]}
     if board.get("outfit") in vocab.OUTFITS:
         out["outfit"] = board["outfit"]
+    if board.get("mode") in ("explainer", "story"):
+        out["mode"] = board["mode"]
+    cast = []
+    for m in board.get("cast") or []:
+        name = " ".join(str(m.get("name", "")).split())[:40] if isinstance(m, dict) else ""
+        if name and name != out["hero_name"] and name not in [x["name"] for x in cast]:
+            cast.append({"name": name, "type": m.get("type") if m.get("type") in vocab.HEROES else "man",
+                         "outfit": m.get("outfit") if m.get("outfit") in vocab.OUTFITS else "casual"})
+            if isinstance(m.get("look"), dict):  # your own edits, e.g. {"hair_style": "hijab", "beard": "beard"}
+                cast[-1]["look"] = m["look"]
+    if cast:
+        out["cast"] = cast[:3]
     if isinstance(board.get("hero_look"), dict):
         out["hero_look"] = board["hero_look"]
     return out
@@ -510,17 +580,39 @@ def enrich(board):
 # ------------------------------------------------------------------- main ---
 
 
+def fallback_model(model, log=print):
+    """The automatically chosen model isn't downloaded yet: use the best one that is."""
+    if config.MODEL_CHOSEN or model != config.DEFAULT_MODEL:
+        return model
+    try:
+        names = {m["name"] for m in _tags().get("models", [])}
+    except requests.RequestException:
+        return model
+    for m, _, _ in config.MODELS:
+        if m in names:
+            log(f"  AI model {model} is not downloaded; using {m}. Better scripts: ollama pull {model}")
+            return m
+    return model
+
+
 def plan(topic, model, seconds=50, lang="en", use_llm=True, log=print):
     llm_ok, why = ollama_status(model, log) if use_llm else (False, "AI planning disabled (--no-ai)")
+    if use_llm and not llm_ok and "not installed" in why:
+        alt = fallback_model(model, log)
+        if alt != model:
+            model = alt
+            llm_ok, why = ollama_status(model, log)
     written_by_ai = False
     if not topic.narration and llm_ok:
-        log(f"  step 1/2: writing the script with {model} ...")
+        log(f"  step 1/3: writing the script with {model} ...")
         lines = _write_script(model, topic.title, seconds, lang, log)
+        log("  step 2/3: checking the facts and wording ...")
+        lines = _review_script(model, topic.title, lines, lang, log)
         written_by_ai = True
     if topic.narration or written_by_ai:
         lines = lines if written_by_ai else split_narration(topic.narration)
         if llm_ok:
-            log(f"  {'step 2/2: ' if written_by_ai else ''}planning scenes for the narration with {model} ...")
+            log(f"  {'step 3/3: ' if written_by_ai else ''}planning scenes for the narration with {model} ...")
             try:
                 data = _chat(model, SYSTEM, _visuals_prompt(topic.title, lines), _schema(True), 0.5)
                 planned = data.get("shots", [])

@@ -178,6 +178,9 @@ def village(env, T, c):
         cl = P.clouds(c)
         cl.root.location = (0, 40, 14)
         cl.root.scale = (2.2, 2.2, 2.2)
+    # villagers: a farmer carrying a load along the path, an elder resting
+    _extra(c, -2.5, 5.2, math.pi / 2, "carry", kind="man", outfit="farmer")
+    _extra(c, 3.4, 3.8, -0.7, "sit", kind=c.rng.choice(["old_man", "old_woman"]), travel=False)
 
 
 def forest(env, T, c):
@@ -222,6 +225,10 @@ def city(env, T, c):
     for x in (-5.5, 5.5):
         K.box(1.2, 1.2, 0.5, base=True, loc=(x, 2.5, 0), color="#adb5bd")
         _place(P.tree(c), env, x, 2.5, 1.0, rng=c.rng).root.location.z = 0.5
+    # people on the pavement
+    for (x, y, facing, action) in ((-4.0, 3.7, math.pi / 2, "walk"), (3.0, 4.2, -math.pi / 2, "walk"),
+                                   (6.5, 3.5, -math.pi / 2, "walk"), (-2.8, 3.2, 0.4, "phone")):
+        _extra(c, x, y, facing, action, travel=action == "walk")
 
 
 def space(env, T, c):
@@ -357,6 +364,14 @@ def room(env, T, c):
     K.cyl(0.22, 0.28, r2=0.13, seg=16, base=True, loc=(tx + 0.5, ty, 1.3), color="#ffe8a3", kind="emit",
           emit=3.0 if night else 0.8)
     K.light("POINT", 120 if night else 20, "#ffcf8a", loc=(tx + 0.5, ty - 0.2, 1.35), size=0.2)
+    # a family member on the sofa behind
+    sofa = c.rng.choice(["#6d597a", "#457b9d", "#bc6c25", "#2a9d8f"])
+    K.box(1.7, 0.75, 0.42, base=True, loc=(-2.0, 3.75, 0), color=sofa, bevel=0.05)
+    K.box(1.7, 0.22, 0.85, base=True, loc=(-2.0, 4.15, 0), color=K.shade(sofa, 0.8), bevel=0.05)
+    for dx in (-0.85, 0.85):
+        K.box(0.2, 0.75, 0.62, base=True, loc=(-2.0 + dx, 3.75, 0), color=K.shade(sofa, 0.8), bevel=0.05)
+    _extra(c, -2.25, 3.75, 0.2, c.rng.choice(["read", "phone", "drink"]),
+           kind=c.rng.choice(["old_man", "old_woman", "woman", "man"]), seated=True, travel=False)
     # shelf with books
     K.box(1.8, 0.4, 0.06, loc=(-3.4, 4.3, 2.6), color="#6f4518")
     x = -4.15
@@ -558,6 +573,10 @@ def shop(env, T, c):
         _lamp(x, 1.8, 3.6, night)
     K.light("AREA", 420, "#fff4e6", loc=(0, 0.5, 6.0), size=7)
     K.box(3.0, 1.8, 0.01, base=True, loc=(0, 0.4, 0), color=K.shade(c.accent, 0.55))
+    # people: a cashier behind the counter, shoppers looking at the shelves
+    _extra(c, cx + 0.3, cy + 0.65, 0.15, "idle", outfit="shopkeeper", travel=False)
+    _extra(c, -2.3, 3.25, math.pi + 0.55, "think", travel=False)
+    _extra(c, -0.9, 3.45, math.pi - 0.35, "idle", travel=False)
 
 
 AWNINGS = [("#e63946", "#f1faee"), ("#2a9d8f", "#e9c46a"), ("#457b9d", "#f1faee"), ("#f4a261", "#fefae0"),
@@ -787,6 +806,7 @@ def cafe(env, T, c):
         _bench(bx, by, rot)
     _extra(c, 0.35, 4.1, 0.0, "idle", kind="man", outfit="shopkeeper", travel=False)
     _extra(c, -2.3, 1.75, 0.35 + 0.6, "drink", seated=True, travel=False)
+    _extra(c, 2.4, 1.85, -0.35 - 0.6, "talk", seated=True, travel=False, hand=1)
     _street_buildings(c, list(range(-26, 27, 6)), 17, 18, front=True)
     for x in (-5.5, 5.5, 16.5):
         K.cyl(0.08, 7.0, seg=8, base=True, loc=(x, 7.6, 0), color="#6c757d")

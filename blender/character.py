@@ -18,14 +18,33 @@ PANTS = ["#264653", "#1d3557", "#3d405b", "#5c4033", "#2b2d42"]
 HAIRS = ["#2b1d0e", "#4a2c17", "#0f0f0f", "#6b4423", "#a0522d"]
 
 
+MALE_HAIR = ["short", "short", "side", "spiky", "curly"]
+FEMALE_HAIR = ["long", "long", "bun", "ponytail", "hijab", "hijab"]
+HIJABS = ["#1d3557", "#6d597a", "#2a9d8f", "#e5989b", "#f1faee", "#bc6c25", "#264653"]
+
+
 def random_look(rng, kind=None):
-    return {
-        "type": kind or rng.choice(["boy", "girl", "man", "woman"]),
+    """A complete, repeatable look: the same seed always gives the same person."""
+    kind = kind or rng.choice(["boy", "girl", "man", "woman"])
+    female = kind in ("girl", "woman", "old_woman")
+    adult = kind not in ("boy", "girl")
+    look = {
+        "type": kind,
         "skin": rng.choice(SKINS),
         "shirt": rng.choice(SHIRTS),
         "pants": rng.choice(PANTS),
         "hair": rng.choice(HAIRS),
+        "hair_style": rng.choice(FEMALE_HAIR if female else MALE_HAIR),
+        "hijab": rng.choice(HIJABS),
+        "beard": rng.choice(["", "", "beard", "mustache"]) if adult and not female else "",
+        "tupi": adult and not female and rng.random() < 0.12,
+        "glasses": adult and rng.random() < 0.2,
+        "build": rng.choice(["slim", "normal", "normal", "heavy"]) if adult else "normal",
+        "height": round(rng.uniform(0.95, 1.05), 3),
     }
+    if kind == "old_man" and not look["beard"]:
+        look["beard"] = "beard"
+    return look
 
 
 def build(look, c, loc=(0, 0, 0), scale=1.0, astronaut=False, outfit=None):
@@ -34,7 +53,8 @@ def build(look, c, loc=(0, 0, 0), scale=1.0, astronaut=False, outfit=None):
     old = kind.startswith("old")
     female = kind in ("girl", "woman", "old_woman")
     robot = kind == "robot"
-    s = scale * (0.74 if child else 1.0)
+    s = scale * (0.74 if child else 1.0) * float(look.get("height", 1.0))
+    wide = {"slim": 0.88, "heavy": 1.2}.get(look.get("build"), 1.0) if not robot else 1.0
     skin, shirt, pants = look["skin"], look["shirt"], look["pants"]
     hair = "#dcdcdc" if old else look["hair"]
     surf = "matte"
@@ -107,11 +127,14 @@ def build(look, c, loc=(0, 0, 0), scale=1.0, astronaut=False, outfit=None):
               bevel=0.04)
         K.box(0.2, 0.02, 0.14, parent=body, loc=(0, -0.19, 1.15), color="#4cc9f0", kind="emit", emit=3)
     elif female:
-        K.cyl(0.36, 0.5, r2=0.21, seg=14, base=True, parent=body, loc=(0, 0, 0.66), color=shirt)
-        K.cyl(0.21, 0.3, r2=0.24, seg=14, base=True, parent=body, loc=(0, 0, 1.12), color=shirt)
+        K.cyl(0.36, 0.5, r2=0.21, seg=14, base=True, parent=body, loc=(0, 0, 0.66), color=shirt,
+              scale=(wide, wide, 1))
+        K.cyl(0.21, 0.3, r2=0.24, seg=14, base=True, parent=body, loc=(0, 0, 1.12), color=shirt,
+              scale=(wide, wide, 1))
     else:
-        K.cyl(0.215, 0.14, seg=14, base=True, parent=body, loc=(0, 0, 0.8), color=pants)
-        K.cyl(0.21, 0.5, r2=0.25, seg=14, base=True, parent=body, loc=(0, 0, 0.93), color=shirt)
+        K.cyl(0.215, 0.14, seg=14, base=True, parent=body, loc=(0, 0, 0.8), color=pants, scale=(wide, wide, 1))
+        K.cyl(0.21, 0.5, r2=0.25, seg=14, base=True, parent=body, loc=(0, 0, 0.93), color=shirt,
+              scale=(wide, wide, 1))
     if astronaut:
         K.box(0.4, 0.22, 0.5, base=True, parent=body, loc=(0, 0.3, 0.9), color="#adb5bd", kind="gloss",
               bevel=0.04)
@@ -120,7 +143,8 @@ def build(look, c, loc=(0, 0, 0), scale=1.0, astronaut=False, outfit=None):
 
     # arms
     for side in (-1, 1):
-        sh = K.empty("shoulder", parent=body, loc=(side * 0.3, 0, 1.36), rot=(0, -side * 0.1, 0))
+        sh = K.empty("shoulder", parent=body, loc=(side * 0.3 * (1 + (wide - 1) * 0.8), 0, 1.36),
+                     rot=(0, -side * 0.1, 0))
         K.sphere(0.085, seg=10, rings=6, parent=sh, color=sleeve, kind=surf)
         K.cyl(0.068, 0.34, seg=10, top=True, parent=sh, color=sleeve, kind=surf)
         el = K.empty("elbow", parent=sh, loc=(0, 0, -0.32))
@@ -142,7 +166,8 @@ def build(look, c, loc=(0, 0, 0), scale=1.0, astronaut=False, outfit=None):
             e = K.box(0.1, 0.02, 0.07, parent=head, loc=(x, -0.215, 0.28), color="#4cc9f0", kind="emit",
                       emit=6)
             ch["eyes"].append(e)
-        K.box(0.2, 0.02, 0.04, parent=head, loc=(0, -0.215, 0.13), color="#4cc9f0", kind="emit", emit=3)
+        ch["mouth"] = K.box(0.2, 0.02, 0.04, parent=head, loc=(0, -0.215, 0.13), color="#4cc9f0", kind="emit",
+                            emit=3)
         K.cyl(0.015, 0.18, seg=6, base=True, parent=head, loc=(0, 0, 0.44), color="#6c757d")
         tip = K.sphere(0.04, seg=8, rings=6, parent=head, loc=(0, 0, 0.63), color="#ff006e", kind="emit",
                        emit=6)
@@ -155,34 +180,100 @@ def build(look, c, loc=(0, 0, 0), scale=1.0, astronaut=False, outfit=None):
             K.sphere(0.012, seg=6, rings=4, parent=e, loc=(0.012, -0.03, 0.015), color="#ffffff",
                      kind="emit", emit=2)
             ch["eyes"].append(e)
-        if not (old and not female):
-            K.torus(0.055, 0.012, seg=12, rseg=5, arc=0.5, parent=head, loc=(0, -0.245, 0.16),
-                    rot=(math.pi / 2, math.pi, 0), color="#7a2e2e")
+        # mouth: a smile line plus a dark opening that moves when the character speaks
+        K.torus(0.055, 0.012, seg=12, rseg=5, arc=0.5, parent=head, loc=(0, -0.245, 0.16),
+                rot=(math.pi / 2, math.pi, 0), color="#7a2e2e")
+        ch["mouth"] = K.sphere(0.05, seg=12, rings=6, parent=head, loc=(0, -0.236, 0.146),
+                               scale=(1.2, 0.35, 0.08), color="#4a1414")
         for x in (-0.15, 0.15):
             K.sphere(0.04, seg=8, rings=5, parent=head, loc=(x, -0.205, 0.17), scale=(1, 0.4, 0.7),
                      color="#ff8fa3")
-        if old and not female:
-            K.sphere(0.2, seg=12, rings=8, parent=head, loc=(0, -0.16, 0.06), scale=(1, 0.7, 0.9),
-                     color=hair)
-            K.sphere(0.27, seg=16, rings=10, parent=head, loc=(0, 0.07, 0.22), scale=(1.02, 0.9, 0.9),
-                     color=hair)
-        else:
-            K.hemisphere(0.275, parent=head, loc=(0, 0.02, 0.33), scale=(1, 1.02, 0.8), color=hair)
-            K.sphere(0.27, seg=16, rings=10, parent=head, loc=(0, 0.06, 0.24), scale=(1, 0.9, 1), color=hair)
-        if female:
-            K.sphere(0.3, seg=16, rings=10, parent=head, loc=(0, 0.12, 0.02), scale=(1, 0.6, 1.5), color=hair)
-            if old:
-                K.sphere(0.12, seg=12, rings=8, parent=head, loc=(0, 0.12, 0.52), color=hair)
-        if old:
-            for x in (-0.09, 0.09):
-                K.torus(0.058, 0.01, seg=16, rseg=5, parent=head, loc=(x, -0.255, 0.27),
-                        rot=(math.pi / 2, 0, 0), color="#495057", kind="metal")
+        _hair(ch, head, look, hair, female, old, kind, outfit)
+        if old or (look.get("glasses") and not astronaut):
+            _glasses(head, "#495057" if old else "#212529")
     if astronaut:
         K.sphere(0.4, seg=24, rings=14, parent=head, loc=(0, 0, 0.24), color="#caf0f8", kind="glass")
         K.torus(0.24, 0.05, seg=20, rseg=6, parent=head, loc=(0, 0, -0.04), color="#adb5bd", kind="metal")
     _dress_up(ch, outfit, female, look, c, old)
     ch["outfit"] = outfit
     return ch
+
+
+HATS = {"farmer", "worker", "chef", "police", "delivery"}
+
+
+def _hair(ch, head, look, hair, female, old, kind, outfit="casual"):
+    """Hair style, hijab, beard / moustache and tupi."""
+    style = look.get("hair_style") or ("long" if female else "short")
+    hat = outfit in HATS
+    if female and style == "hijab":
+        col = look.get("hijab", "#1d3557")
+        K.hemisphere(0.33, seg=20, rings=10, parent=head, loc=(0, -0.12, 0.25), rot=(-math.pi / 2, 0, 0),
+                     scale=(1, 1, 1.25), color=col)
+        K.hemisphere(0.285, seg=20, rings=8, parent=head, loc=(0, 0.0, 0.3), scale=(1.03, 1.03, 0.85), color=col)
+        K.cyl(0.36, 0.32, r2=0.2, seg=18, base=True, parent=ch["body"], loc=(0, 0.02, 1.28), color=col)
+        return
+    if old and not female:  # bald on top, hair on the sides and back
+        K.sphere(0.27, seg=16, rings=10, parent=head, loc=(0, 0.07, 0.22), scale=(1.02, 0.9, 0.9), color=hair)
+    elif style == "curly" and not hat:
+        K.sphere(0.27, seg=16, rings=10, parent=head, loc=(0, 0.06, 0.24), scale=(1, 0.9, 1), color=hair)
+        for i in range(14):
+            a = K.TAU * i / 9
+            ring = 0 if i < 9 else 1
+            r = (0.2, 0.1)[ring]
+            K.sphere(0.075, seg=8, rings=5, parent=head, color=hair,
+                     loc=(r * math.cos(a + ring), 0.02 + r * math.sin(a + ring), (0.42, 0.5)[ring]))
+    else:
+        K.hemisphere(0.275, parent=head, loc=(0, 0.02, 0.33), scale=(1, 1.02, 0.8), color=hair)
+        K.sphere(0.27, seg=16, rings=10, parent=head, loc=(0, 0.06, 0.24), scale=(1, 0.9, 1), color=hair)
+        if not female and not hat:
+            if style == "side":
+                K.sphere(0.13, seg=12, rings=6, parent=head, loc=(0.1, -0.13, 0.45), scale=(1.5, 0.8, 0.45),
+                         color=hair)
+            elif style == "spiky":
+                for i in range(6):
+                    a = K.TAU * i / 6
+                    K.cone(0.05, 0.12, seg=6, parent=head, loc=(0.1 * math.cos(a), 0.1 * math.sin(a), 0.55),
+                           rot=(0.5 * math.sin(a), -0.5 * math.cos(a), 0), color=hair)
+    if female:
+        if style in ("long",) or old:
+            K.sphere(0.3, seg=16, rings=10, parent=head, loc=(0, 0.12, 0.02), scale=(1, 0.6, 1.5), color=hair)
+        if style == "bun" or old:
+            K.sphere(0.12, seg=12, rings=8, parent=head, loc=(0, 0.17, 0.46), color=hair)
+        if style == "ponytail":
+            K.sphere(0.09, seg=10, rings=6, parent=head, loc=(0, 0.27, 0.32), color=hair)
+            K.sphere(0.08, seg=10, rings=6, parent=head, loc=(0, 0.31, 0.12), scale=(0.75, 0.75, 1.9), color=hair)
+    beard = look.get("beard", "")
+    if beard and not female:
+        col = "#dcdcdc" if old else hair
+        if beard == "beard":
+            K.hemisphere(0.255, seg=16, rings=8, parent=head, loc=(0, -0.02, 0.11), rot=(math.pi, 0, 0),
+                         scale=(1.02, 1.0, 0.62), color=col)
+        K.sphere(0.05, seg=10, rings=6, parent=head, loc=(0, -0.252, 0.188), scale=(1.35, 0.45, 0.35), color=col)
+    if look.get("tupi") and not female and not hat:
+        K.hemisphere(0.215, seg=16, rings=6, parent=head, loc=(0, 0.02, 0.475), scale=(1, 1, 0.55), color="#f8f9fa")
+
+
+def speak(ch, level):
+    """Move the mouth with the voice. level(t) -> 0..1 (how open)."""
+    mouth, head = ch.get("mouth"), ch["head"]
+    if mouth is None:
+        return
+    def move(t, s):
+        k = level(t)
+        s.scale.z *= 1 + 9.0 * k
+        s.loc.z -= 0.012 * k  # the jaw drops a little
+    K.animate(mouth, move)
+    K.animate(head, lambda t, s: s.rot.__setitem__(0, s.rot.x + 0.05 * level(t)))
+
+
+def chatter(ch, phase=0.0):
+    """Mouth moving in a talking rhythm (for people we see talking but don't hear)."""
+    def level(t):
+        syll = max(0.0, math.sin(K.TAU * 3.1 * t + phase)) * (0.6 + 0.4 * K.wobble(t, phase, 2.0))
+        breath = K.smooth((math.sin(K.TAU * 0.27 * t + phase) + 0.6) / 0.4)  # short pauses between phrases
+        return max(0.0, syll) * breath * 0.8
+    speak(ch, level)
 
 
 def _glasses(head, color="#212529"):
@@ -238,7 +329,7 @@ def _dress_up(ch, outfit, female, look, c, old=False):
             K.box(0.14, 0.12, 0.025, parent=body, loc=(x, 0, 1.44), color="#14213d")
         return
     if outfit == "teacher":
-        if not old:
+        if not old and not look.get("glasses"):
             _glasses(head)
         K.box(0.17, 0.03, 0.08, parent=body, loc=(0, -0.22, 1.38), color="#ffffff")
         if not female:
@@ -319,13 +410,18 @@ WALKING = ("walk", "run", "carry", "push_cart")
 HEAD_BUSY = ("read", "sad", "think", "work", "point", "listen", "phone", "write", "drink", "search", "announce")
 
 
-def act(ch, action, c, phase=0.0, facing=0.0, travel=True, seated=False, mode=None, hand=0):
+def act(ch, action, c, phase=0.0, facing=0.0, travel=True, seated=False, mode=None, hand=0, voice=None):
     """Attach an action loop. Returns a function t -> world offset of the character (for camera tracking).
 
     seated: sit down while doing a hand action (tea at a bench, typing at a desk)
     mode:   "type" makes "work" type on a keyboard (default: from the shot's props)
     hand:   0 or 1, the arm used for one-handed actions (the arm nearest the camera)
+    voice:  level(t) -> 0..1 from the narration: this character says the line (lip-sync)
     """
+    if voice is not None:
+        speak(ch, voice)
+    elif action in ("talk", "announce"):
+        chatter(ch, phase)
     sin, TAU = math.sin, K.TAU
     body, head = ch["body"], ch["head"]
     sh, el, hip, knee = ch["sh"], ch["el"], ch["hip"], ch["knee"]

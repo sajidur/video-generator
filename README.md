@@ -217,6 +217,34 @@ After the AI plans the scenes, two checks go over every line:
 - **Explainers:** topics that talk to "you" get one consistent presenter (everyday clothes, suit,
   office wear or teacher).
 
+### Real speaking and a real cast
+
+- **Lip-sync:** in explainers the presenter says the narration: the mouth opens and closes with the
+  loudness of the voice, frame by frame, and the camera comes a little closer. In stories a narrator
+  tells the story; a character speaks only lines written as dialogue ("..."). People who talk in the
+  background move their mouths too.
+- **Same people all video:** the other person (customer, friend) keeps one face and outfit in every
+  scene. Named people in a story (for example Rakib's customer Karim) each get their own fixed look.
+- **Many looks:** hijab, beard, moustache, tupi, glasses, different hair (bun, ponytail, curly,
+  spiky), slim / heavy builds, heights, skin and clothes colours.
+- **Busy places:** shoppers and a cashier in the shop, family at home, people on the street, villagers,
+  tea drinkers, office colleagues, students.
+- **The same place looks the same** in every scene set there (colours, furniture, people).
+
+To choose looks yourself, edit `storyboard.json`:
+
+```json
+"hero_look": {"hair_style": "hijab", "hijab": "#1d3557", "glasses": true},
+"cast": [
+  {"name": "করিম", "type": "man", "outfit": "shopkeeper",
+   "look": {"beard": "beard", "tupi": true, "build": "heavy"}}
+],
+```
+
+and put `"with": "করিম"` in a scene to show him there. Look options: `hair_style` (short, side,
+spiky, curly, long, bun, ponytail, hijab), `hijab` (a colour), `beard` (beard, mustache), `tupi`,
+`glasses` (true/false), `build` (slim, normal, heavy), `skin`, `shirt`, `pants`, `hair` (colours).
+
 ---
 
 ## Speed

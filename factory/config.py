@@ -26,7 +26,40 @@ def env(name, default=""):
 OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 if not OLLAMA_URL.startswith("http"):
     OLLAMA_URL = "http://" + OLLAMA_URL
-DEFAULT_MODEL = os.environ.get("FACTORY_MODEL", "gemma3:4b")
+
+
+def ram_gb():
+    """Installed memory in GB (0 if unknown)."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            class _Mem(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+            m = _Mem()
+            m.dwLength = ctypes.sizeof(m)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
+            return m.ullTotalPhys / 2 ** 30
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2 ** 30
+    except (OSError, ValueError, AttributeError):
+        return 0.0
+
+
+# script-writing models, best first: (name, download GB, memory needed GB)
+MODELS = [("gemma4:12b", 8, 14), ("gemma3:4b", 3.3, 6)]
+
+
+def recommended_model():
+    ram = ram_gb() or 8
+    return next((m for m, _, need in MODELS if ram >= need), MODELS[-1][0])
+
+
+DEFAULT_MODEL = os.environ.get("FACTORY_MODEL") or recommended_model()
+MODEL_CHOSEN = bool(os.environ.get("FACTORY_MODEL"))  # False: picked automatically
 
 # render size, fps and EEVEE samples; "out" is the final video size (upscaled by ffmpeg)
 QUALITY = {

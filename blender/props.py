@@ -699,13 +699,24 @@ def crowd(c):
 def person(c):
     """One other person (customer, friend, parent...). The layout turns them towards the hero,
     and they react to what the hero does (the hero sells -> they pay, the hero talks -> they listen)."""
+    import random
+
     import character
     root = K.empty("person")
-    look = character.random_look(c.rng, c.rng.choice(["man", "woman", "old_man", "old_woman"]))
-    ch = character.build(look, c)
-    ch["root"].parent = root
     action = PARTNER_REACTS.get(getattr(c, "hero_action", ""), "talk")
-    character.act(ch, action, c, phase=1.3, travel=False, hand=1)
+    partner = getattr(c, "partner", None)  # the video's cast member: same face in every shot
+    if partner:
+        look = character.random_look(random.Random(partner["seed"]), partner["type"])
+        look.update({k: v for k, v in (partner.get("look") or {}).items() if k in look and k != "type"})
+        outfit = partner.get("outfit", "casual")
+        if action == "give" and getattr(c, "env_name", "") in ("shop", "market", "cafe"):
+            outfit = "shopkeeper"  # whoever sells here wears the apron
+    else:
+        look = character.random_look(c.rng, c.rng.choice(["man", "woman", "old_man", "old_woman"]))
+        outfit = "casual"
+    ch = character.build(look, c, outfit=outfit)
+    ch["root"].parent = root
+    character.act(ch, action, c, phase=1.3, travel=False, hand=1, voice=getattr(c, "partner_voice", None))
     return Built(root, 2.05, 0.9)
 
 

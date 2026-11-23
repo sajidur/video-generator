@@ -89,16 +89,17 @@ def layout(shot, env, c, hero):
     ch = None
     walking = action in ("walk", "run", "carry", "push_cart") and not space
     c.work_mode = "type" if {"laptop", "phone"} & set(props) else ""
+    speaking = getattr(c, "hero_voice", None) is not None
     if has_char:
         cx = -0.55 if stage else 0.0
-        facing = FACING.get(action, c.rng.uniform(-0.3, 0.3))
+        facing = FACING.get(action, c.rng.uniform(-0.15, 0.15) if speaking else c.rng.uniform(-0.3, 0.3))
         z = 0.4 if space else ground(cx, 0)
         ch = character.build(hero, c, loc=(cx, 0, z), astronaut=space, outfit=hero.get("outfit"))
         if space:
             K.bob(ch["root"], 0.12, 0.18)
             K.sway(ch["root"], 0.08, 0.12, 1)
         track = character.act(ch, action, c, phase=c.rng.uniform(0, 3), facing=facing,
-                              travel=not space)
+                              travel=not space, voice=getattr(c, "hero_voice", None))
         char_h = ch["height"]
         char_track = track if walking else None
         focus.append(Focus((cx, 0, z + char_h * 0.5), char_h * 0.55, track))
@@ -157,8 +158,11 @@ def layout(shot, env, c, hero):
                 K.pop(b.root, delay=c.t0 + 0.1 + 0.2 * i, dur=0.7)
             focus.append(Focus((x, y, z + b.height * 0.5 * s), max(b.height, b.width) * 0.5 * s))
 
-    # the hero turns towards whoever / whatever they talk to, point at or deal with
+    # the hero turns towards whoever / whatever they talk to, point at or deal with;
+    # a presenter saying the line to the viewer stays turned to the camera
     turn = TURN.get(action, 0.45 if action == "work" and c.work_mode == "type" else 0.0)
+    if speaking and action in ("talk", "point", "thumbs_up", "announce"):
+        turn *= 0.4
     if ch and turn and len(focus) > 1:
         tx, ty = focus[1].center.x, focus[1].center.y
         hx, hy = ch["root"].location.x, ch["root"].location.y
@@ -213,6 +217,10 @@ def frame_focus(focus, aspect):
 
 def camera_rig(move, focus, env, c, aspect, dof):
     center, radius, D, track = frame_focus(focus, aspect)
+    if getattr(c, "hero_voice", None) is not None and focus:  # a speaker: come a little closer to the face
+        face = focus[0].center + Vector((0, 0, focus[0].radius * 0.55))
+        center = center.lerp(face, 0.45)
+        D *= 0.75
     cam = K.link(bpy.data.objects.new("camera", bpy.data.cameras.new("camera")))
     cam.data.lens = LENS
     cam.data.sensor_width = SENSOR
@@ -334,17 +342,34 @@ def _clean_partial_frames(out):
             p.unlink(missing_ok=True)
 
 
+def _voice(levels, fps):
+    """level(t) for lip-sync from per-frame mouth levels."""
+    if not levels:
+        return None
+    n = len(levels)
+    return lambda t: levels[min(n - 1, max(0, int(round(t * fps))))]
+
+
 def build_shot(job, shot):
     K.reset()
     fps = job["fps"]
     seed = int(shot["seed"])
     rng = random.Random(seed)
     frames = int(shot["frames"])
-    c = Ctx(rng=rng, seed=seed, night=shot.get("time") == "night", accent=shot.get("accent", "#ffd166"),
+    # the place is built from its own seed and colour, so it looks the same in every shot set there
+    c = Ctx(rng=random.Random(int(shot.get("env_seed", seed))), seed=seed, night=shot.get("time") == "night",
+            accent=shot.get("env_accent", shot.get("accent", "#ffd166")),
             dur=frames / fps, t0=float(shot.get("head", 0.0)), font_bold=job.get("font_bold"),
-            props=list(shot.get("props", [])))
+            props=list(shot.get("props", [])), env_name=shot.get("environment", "studio"))
     K.setup_render(job["width"], job["height"], fps, job["samples"], job["quality"])
     env = worlds.build(shot.get("environment", "studio"), shot.get("time", "day"), c)
+    c.rng, c.accent = rng, shot.get("accent", "#ffd166")
+    cast = job.get("cast") or []
+    c.partner = cast[min(int(shot.get("partner", 0)), len(cast) - 1)] if cast else None
+    voice = _voice(shot.get("mouth"), fps)
+    c.speaker = shot.get("speaker", "")
+    c.hero_voice = voice if c.speaker == "hero" else None
+    c.partner_voice = voice if c.speaker == "partner" else None
     h = job.get("hero", {})
     # same seed in every shot = same face and colours; the form (age) and outfit can change per shot
     hero = character.random_look(random.Random(h.get("seed", 0)), shot.get("hero") or h.get("type", "boy"))

@@ -53,6 +53,13 @@ def _grows_up(text):
     return any(norm(p) in t for p in vocab.GROW_UP)
 
 
+def is_explainer(board):
+    """A video that talks to "you" without a named character (vs. a story about someone)."""
+    shots = board["shots"]
+    name = board.get("hero_name") or detect_name(" ".join(s["narration"] for s in shots))
+    return not name and sum(1 for s in shots if has(s["narration"], W["viewer"])) >= 2
+
+
 def cast(board):
     shots = board["shots"]
     story = " ".join(s["narration"] for s in shots)
@@ -71,8 +78,7 @@ def cast(board):
     board["hero_name"] = name
     # Explainer (talks to "you", no named character): one consistent adult presenter.
     # Story (a named or introduced character): the actor follows the plot.
-    talks_to_viewer = sum(1 for s in shots if has(s["narration"], W["viewer"]))
-    explainer = not name and talks_to_viewer >= 2
+    explainer = is_explainer(board)
     if explainer and hero != "robot":
         age = max(age, 1)
         hero = vocab.HERO_FORMS[(gender, age)]
@@ -119,7 +125,35 @@ def cast(board):
         delivering = count(t, vocab.KEYWORDS["actions"]["carry"], "", vocab.KEYWORDS_BN["actions"]["carry"])
         if s["character"] in ("walk", "run") and delivering:
             s["character"] = "carry"
+        # a named person from the cast who is mentioned in this line is in the shot
+        names = [m["name"] for m in board.get("cast", [])]
+        if s.get("with") not in names:
+            s.pop("with", None)
+        for m in names:
+            if norm(m).lower() in norm(t).lower():
+                s["with"] = m
         # selling, buying, a handshake or listening needs someone to do it with
-        if s["character"] in vocab.PARTNER_ACTIONS and not {"person", "crowd"} & set(s["props"]):
+        if (s["character"] in vocab.PARTNER_ACTIONS or s.get("with")) and not {"person", "crowd"} & set(s["props"]):
             s["props"] = (["person"] + s["props"])[:3]
     return board
+
+
+NO_SPEAK = {"none", "listen", "read", "sad", "run", "drink"}
+DIALOGUE = re.compile(r'["“”]')
+
+
+def speaker(board, shot):
+    """Who says this line on screen: "hero", "partner" or "" (a narrator we don't see).
+
+    Explainers: the presenter speaks every line they are in (unless busy drinking, reading...).
+    Stories: a narrator tells the story; a character only speaks lines that are dialogue ("...")."""
+    act = shot.get("character", "none")
+    mode = board.get("mode") or ("explainer" if is_explainer(board) else "story")
+    if mode == "explainer":
+        return "" if act in NO_SPEAK else "hero"
+    if DIALOGUE.search(shot.get("narration", "")):
+        if act == "listen" and ("person" in shot.get("props", []) or shot.get("with")):
+            return "partner"
+        if act not in NO_SPEAK:
+            return "hero"
+    return ""

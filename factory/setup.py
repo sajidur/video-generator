@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
 from pathlib import Path
 
@@ -242,11 +243,19 @@ def wizard(log=print):
     exe = _ollama_exe()
     if exe:
         from .storyboard import ollama_status
-        good, _ = ollama_status(config.DEFAULT_MODEL, log=lambda m: None)
+        model = config.DEFAULT_MODEL
+        size = next((gb for m, gb, _ in config.MODELS if m == model), 5)
+        good, _ = ollama_status(model, log=lambda m: None)
         if good:
-            log(f"  AI model {config.DEFAULT_MODEL}: ok")
-        elif _yes(f"Download the AI model {config.DEFAULT_MODEL} (about 3 GB)?"):
-            subprocess.run([exe, "pull", config.DEFAULT_MODEL])
+            log(f"  AI model {model}: ok")
+        elif _yes(f"Download the AI model {model} (about {size:g} GB; best one for "
+                  f"{config.ram_gb():.0f} GB memory)?"):
+            for _ in range(20):  # big downloads: resume after a dropped connection
+                if subprocess.run([exe, "pull", model]).returncode == 0:
+                    upd["FACTORY_MODEL"] = model
+                    break
+                log("  download interrupted, resuming ...")
+                time.sleep(10)
 
     log("\n2) Video style")
     log("  footage = real video clips (needs a free Pexels or Pixabay key)")
