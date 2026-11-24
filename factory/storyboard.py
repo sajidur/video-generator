@@ -205,6 +205,8 @@ VISUAL_RULES = """Rules for each shot's visuals:
 SCRIPT_RULES = {
     "bn": ("- লিখবেন শুধু বাংলায়, বাংলা অক্ষরে। কোনো ইংরেজি, হিন্দি বা গুজরাটি অক্ষর নয়।\n"
            "- Write ONLY in Bengali using Bengali script. Never switch to Hindi, Gujarati or English.\n"
+           "- For a technical term use the usual Bangla word (সক্রিয়, বিভাজন) or the English term in standard\n"
+           "  Bangla spelling (প্রো-অ্যাক্টিভ, সেগমেন্টেশন). Never make up a spelling.\n"
            "- Use an everyday example from Bangladesh (a shop, a rickshaw, a tea stall, a mobile phone)."),
     "en": "- Write in simple spoken English.",
 }
@@ -277,7 +279,9 @@ Check and fix it:
   names a book, the definition and the parts of the idea must be the ones that book uses.
 - The video must really explain the topic: its exact definition and, if it has parts or steps, name
   them all. Replace vague lines with clear, specific ones.
-- Fix broken, garbled, unnatural or wrong words, and sentences that make no sense.
+- Fix broken, garbled, unnatural or wrong words, and sentences that make no sense. Write technical
+  terms the way readers know them: the common word, or the English term in its standard spelling.
+  Never invent a spelling.
 - No invented statistics, numbers, studies or quotes.
 - Keep the hook first and the takeaway last, 7 to 9 lines, each 12 to 25 words of simple spoken language.
 {SCRIPT_RULES.get(lang, SCRIPT_RULES["en"])}

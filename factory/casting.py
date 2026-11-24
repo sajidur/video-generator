@@ -8,7 +8,7 @@ Runs after planning (AI or keywords) and decides, per shot:
 import re
 
 from . import vocab
-from .text import count, has, norm
+from .text import bn_words, count, has, norm
 
 W = vocab.CAST_WORDS
 WORK_OUTFITS = {"suit", "shopkeeper", "doctor", "worker", "farmer", "office", "chef", "delivery", "police",
@@ -53,11 +53,21 @@ def _grows_up(text):
     return any(norm(p) in t for p in vocab.GROW_UP)
 
 
+# Bangla polite commands to the viewer end in -ুন (করুন, শিখুন, জানুন); these words only look like it
+NOT_COMMANDS = {norm(w) for w in "নতুন আগুন গুন দ্বিগুন তিনগুন খুন ফাল্গুন নিপুন".split()}
+
+
+def _talks_to_viewer(text):
+    if has(text, W["viewer"]):
+        return True
+    return any(w.endswith(norm("ুন")) and len(w) > 2 and w not in NOT_COMMANDS for w in bn_words(text))
+
+
 def is_explainer(board):
     """A video that talks to "you" without a named character (vs. a story about someone)."""
     shots = board["shots"]
     name = board.get("hero_name") or detect_name(" ".join(s["narration"] for s in shots))
-    return not name and sum(1 for s in shots if has(s["narration"], W["viewer"])) >= 2
+    return not name and sum(1 for s in shots if _talks_to_viewer(s["narration"])) >= 2
 
 
 def cast(board):

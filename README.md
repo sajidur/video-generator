@@ -28,7 +28,8 @@ For every topic it:
 2. **Get this folder:** download the ZIP from GitHub and unzip it, or
    `git clone https://github.com/sajidur/video-generator.git`.
 3. **Double-click `setup.bat`** and answer the questions. It:
-   - installs everything it needs: FFmpeg, the Ollama AI, the AI model (~3 GB) and, for 3D
+   - installs everything it needs: FFmpeg, the Ollama AI, the best AI model your computer can run
+     (3–18 GB, see below) and, for 3D
      videos, Blender (~400 MB);
    - asks for your free footage key and where to post videos;
    - connects your YouTube / Facebook / TikTok accounts;
@@ -90,9 +91,23 @@ female voice), Bangla captions and Bangla titles.
 `topics.txt` comes with **200 Bangla marketing topics** based on Philip Kotler's *Principles of
 Marketing* (20 chapters × 10 topics).
 
-**Check before you publish.** The AI writes good first drafts, but it can be wrong. For
-educational channels, run `--plan-only` on a batch, read and fix the `narration` lines in
-`output/<topic>/storyboard.json`, then make the videos.
+**Exact meaning.** The AI writes the script, then checks it again as a strict editor (facts,
+the real textbook definition, every part of the idea, broken words) and corrects it. It can still be
+wrong sometimes: for an educational channel, run `--plan-only` on a batch, read the `narration`
+lines in `output/<topic>/storyboard.json`, fix anything wrong, then make the videos.
+
+### Which AI model
+
+The AI runs on your own computer (free). Setup picks the best one that fits your memory:
+
+| model | memory | time per script | quality (tested on the Bangla Kotler topics) |
+|---|---|---|---|
+| `gemma4:26b` | 32 GB | ~4 min | best: exact definitions, all parts of the idea, natural Bangla |
+| `gemma4:12b` | 16 GB | ~8 min | very good |
+| `gemma3:4b` | 8 GB | ~1.5 min | often vague, incomplete or wrong — check every script |
+
+To choose one yourself, put `FACTORY_MODEL=gemma4:12b` in `.env` (or use `--model` once), and
+download it first with `ollama pull gemma4:12b`.
 
 ---
 
@@ -151,7 +166,7 @@ GitHub, and you should never share them.
 | `--seconds 60` | target length when the AI writes the script |
 | `--landscape` | 16:9 instead of 9:16 |
 | `--music file.mp3` / `--music none` | background music (default: a track from `assets/music/`, if any) |
-| `--model gemma3:12b` | another Ollama model (bigger = better writing, slower) |
+| `--model gemma4:12b` | use another Ollama model for this run (see "Which AI model") |
 | `--no-ai` | plan scenes from keywords only (needs your own narration) |
 
 ---
@@ -256,7 +271,7 @@ spiky, curly, long, bun, ponytail, hijab), `hijab` (a colour), `beard` (beard, m
 | 3d, standard | ~40 min |
 | 3d, high | ~2 h |
 
-The AI script adds 3–5 minutes per topic. With 3D, queue several topics overnight, e.g.
+The AI script adds about 5–10 minutes per topic. With 3D, queue several topics overnight, e.g.
 `--next 5`.
 
 ---
@@ -303,6 +318,7 @@ has no builder.
 
 **Manual install** (instead of setup.bat): `python -m venv venv`, then
 `venv\Scripts\pip install -r requirements.txt`, then `winget install Gyan.FFmpeg Ollama.Ollama`,
-then `ollama pull gemma3:4b`, then `python make_video.py --setup`.
+then `ollama pull gemma4:26b` (or a smaller model, see "Which AI model"), then
+`python make_video.py --setup`.
 
 `generate_video.py` is the original single-picture version and still works.

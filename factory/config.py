@@ -49,8 +49,10 @@ def ram_gb():
         return 0.0
 
 
-# script-writing models, best first: (name, download GB, memory needed GB)
-MODELS = [("gemma4:12b", 8, 14), ("gemma3:4b", 3.3, 6)]
+# script-writing models, best first: (name, download GB, memory needed GB).
+# Tested on Bangla Kotler topics: gemma4:26b (mixture of experts, ~4B active) writes the most exact
+# scripts AND is faster than gemma4:12b on a laptop CPU; gemma3:4b is fast but often wrong/incomplete.
+MODELS = [("gemma4:26b", 18, 26), ("gemma4:12b", 8, 14), ("gemma3:4b", 3.3, 6)]
 
 
 def recommended_model():
